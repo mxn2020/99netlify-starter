@@ -2,8 +2,10 @@ const { Redis } = require('@upstash/redis');
 const jwt = require('jsonwebtoken');
 const { parse } = require('cookie');
 const { getCorsHeaders } = require('../platform-utils.cjs');
+const { generateBlogPostId } = require('../secure-id-utils.cjs');
 
 const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 let redis;
 try {
@@ -18,42 +20,87 @@ try {
   console.error('Redis initialization failed for blog:', error);
 }
 
-// Helper to verify authentication
-const verifyAuth = (event) => {
-  try {
-    // Extract token based on auth mode
-    let token;
-    const authHeader = event.headers.authorization || event.headers.Authorization;
+// Authentication middleware
+async function authenticateUser(event) {
+  // Extract token based on auth mode
+  let token;
+  const authHeader = event.headers.authorization || event.headers.Authorization;
 
-    if (AUTH_MODE === 'bearer') {
-      // Bearer token mode - only check Authorization header
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      }
+  if (AUTH_MODE === 'bearer') {
+    // Bearer token mode - only check Authorization header
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  } else {
+    // Cookie mode - check both header and cookies for backward compatibility
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
     } else {
-      // Cookie mode - check both header and cookies for backward compatibility
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7);
-      } else {
-        // Check for token in cookies
-        const cookies = event.headers.cookie;
-        if (cookies) {
-          const parsedCookies = parse(cookies);
-          token = parsedCookies.auth_token;
-        }
+      // Check for token in cookies
+      const cookies = event.headers.cookie;
+      if (cookies) {
+        const parsedCookies = parse(cookies);
+        token = parsedCookies.auth_token;
       }
     }
+  }
 
-    if (!token) {
-      return null;
+  if (!token) {
+    throw new Error('No token provided');
+  }
+
+  // Check if token is valid and not just empty or malformed
+  if (!token || token.trim() === '' || token === 'null' || token === 'undefined') {
+    throw new Error('Invalid token format');
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded.sub; // Use 'sub' field which contains the user ID
+  } catch (error) {
+    console.error('JWT verification failed:', error.message);
+    throw new Error('Invalid token');
+  }
+}
+
+// Get user's current account context
+async function getCurrentAccountContext(userId, accountId = null) {
+  try {
+    // If specific accountId is provided, validate user's access to it
+    if (accountId) {
+      const membershipData = await redis.get(`account:${accountId}:member:${userId}`);
+      if (!membershipData) {
+        throw new Error('Access denied to account');
+      }
+      const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
+      return {
+        accountId,
+        userId,
+        role: membership.role
+      };
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return decoded;
+    // Get user's personal account as default
+    const userAccounts = await redis.lrange(`user:${userId}:accounts`, 0, -1);
+    if (userAccounts.length === 0) {
+      throw new Error('No accounts found for user');
+    }
+
+    // Use the first account (personal account) as default
+    const defaultAccountId = userAccounts[0];
+    const membershipData = await redis.get(`account:${defaultAccountId}:member:${userId}`);
+    const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
+    
+    return {
+      accountId: defaultAccountId,
+      userId,
+      role: membership.role
+    };
   } catch (error) {
-    return null;
+    console.error('Error getting account context:', error);
+    throw error;
   }
-};
+}
 
 // Helper to create a slug
 const slugify = (text) => text.toString().toLowerCase()
@@ -62,6 +109,326 @@ const slugify = (text) => text.toString().toLowerCase()
   .replace(/--+/g, '-')        // Replace multiple - with single -
   .replace(/^-+/, '')          // Trim - from start of text
   .replace(/-+$/, '');         // Trim - from end of text
+
+// Helper to parse tags consistently
+const parseTags = (tags) => {
+  if (typeof tags === 'string') {
+    try {
+      return JSON.parse(tags);
+    } catch {
+      return [];
+    }
+  } else if (Array.isArray(tags)) {
+    return tags;
+  } else {
+    return [];
+  }
+};
+
+// Handle GET requests for blog posts (public access)
+async function handleGetPosts(pathParts, queryParams) {
+  const headers = getCorsHeaders();
+  
+  try {
+    if (pathParts.length === 0) { // GET /blog (list all posts)
+      // Get posts from both account-based and legacy structures
+      const postSlugs = await redis.lrange('blog:posts_list', 0, -1);
+      if (!postSlugs || postSlugs.length === 0) {
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
+      }
+
+      const posts = await Promise.all(
+        postSlugs.map(async slug => {
+          const post = await redis.hgetall(`blog:post:${slug}`);
+          if (post && post.id) {
+            post.tags = parseTags(post.tags);
+          }
+          return post;
+        })
+      );
+
+      // Filter to only show public posts for unauthenticated requests
+      const publicPosts = posts.filter(p => p && p.id && (p.isPublic !== 'false'));
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: publicPosts }) };
+    } else if (pathParts.length === 1) { // GET /blog/:slug
+      const slug = pathParts[0];
+      const post = await redis.hgetall(`blog:post:${slug}`);
+      
+      if (!post || !post.id) {
+        return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
+      }
+
+      // Check if post is public for unauthenticated access
+      if (post.isPublic === 'false') {
+        return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Access denied' }) };
+      }
+
+      post.tags = parseTags(post.tags);
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: post }) };
+    }
+
+    return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Route not found' }) };
+  } catch (error) {
+    console.error('Get posts error:', error);
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Internal server error' }) };
+  }
+}
+
+// Handle creating blog posts
+async function handleCreatePost(event, accountContext) {
+  const headers = getCorsHeaders();
+  const { accountId, userId, role } = accountContext;
+
+  try {
+    // Check if user has permission to create content in this account
+    if (role === 'viewer') {
+      return { 
+        statusCode: 403, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to create content' }) 
+      };
+    }
+
+    let data;
+    try {
+      data = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } catch (error) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
+    }
+
+    const { title, content, summary, tags, imageUrl, isPublic = false } = data;
+    if (!title || !content) {
+      return { 
+        statusCode: 400, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Title and content are required' }) 
+      };
+    }
+
+    const slug = slugify(title);
+    const id = generateBlogPostId();
+    const now = new Date().toISOString();
+
+    const post = {
+      id,
+      slug,
+      title,
+      content,
+      summary: summary || '',
+      accountId, // Link to account
+      userId, // Creator attribution
+      createdBy: userId,
+      author: '', // Will be populated from user data
+      publishedDate: now,
+      updatedDate: now,
+      tags: JSON.stringify(Array.isArray(tags) ? tags : []),
+      imageUrl: imageUrl || '',
+      isPublic: isPublic.toString()
+    };
+
+    // Get user info for author field
+    const userData = await redis.get(`user:${userId}`);
+    if (userData) {
+      const user = typeof userData === 'string' ? JSON.parse(userData) : userData;
+      post.author = user.email || user.name || 'Anonymous';
+    }
+
+    // Check if slug already exists
+    const existingPost = await redis.hgetall(`blog:post:${slug}`);
+    if (existingPost && existingPost.id) {
+      return { 
+        statusCode: 409, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'A post with this title already exists' }) 
+      };
+    }
+
+    // Store post
+    await redis.hset(`blog:post:${slug}`, post);
+    
+    // Add to account's posts list (new structure)
+    await redis.lpush(`account:${accountId}:blog:posts`, slug);
+    
+    // Also add to global posts list for backwards compatibility and public access
+    await redis.lpush('blog:posts_list', slug);
+
+    // Parse tags back for response
+    const responsePost = { ...post, tags: parseTags(post.tags) };
+    return { 
+      statusCode: 201, 
+      headers, 
+      body: JSON.stringify({ 
+        success: true, 
+        data: responsePost,
+        accountContext: { accountId, role }
+      }) 
+    };
+  } catch (error) {
+    console.error('Create post error:', error);
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Internal server error' }) };
+  }
+}
+
+// Handle updating blog posts
+async function handleUpdatePost(event, slug, accountContext) {
+  const headers = getCorsHeaders();
+  const { accountId, userId, role } = accountContext;
+
+  try {
+    const existingPost = await redis.hgetall(`blog:post:${slug}`);
+    if (!existingPost || !existingPost.id) {
+      return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
+    }
+
+    // Verify account access - check both new account-based and legacy user-based ownership
+    const hasAccess = existingPost.accountId === accountId || (existingPost.userId === userId && !existingPost.accountId);
+    if (!hasAccess) {
+      return { 
+        statusCode: 403, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Access denied' }) 
+      };
+    }
+
+    // Check if user has permission to edit content in this account
+    if (role === 'viewer') {
+      return { 
+        statusCode: 403, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to edit content' }) 
+      };
+    }
+
+    let data;
+    try {
+      data = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } catch (error) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
+    }
+
+    const { title, content, summary, tags, imageUrl, isPublic } = data;
+
+    const updatedPost = {
+      ...existingPost,
+      ...(title && { title }),
+      ...(content && { content }),
+      ...(summary !== undefined && { summary }),
+      ...(tags && { tags: JSON.stringify(Array.isArray(tags) ? tags : []) }),
+      ...(imageUrl !== undefined && { imageUrl }),
+      ...(isPublic !== undefined && { isPublic: isPublic.toString() }),
+      accountId: existingPost.accountId || accountId, // Preserve or set accountId
+      updatedBy: userId, // Track who updated it
+      updatedDate: new Date().toISOString()
+    };
+
+    // If title changed, update slug
+    if (title && title !== existingPost.title) {
+      const newSlug = slugify(title);
+      if (newSlug !== slug) {
+        // Check if new slug already exists
+        const conflictPost = await redis.hgetall(`blog:post:${newSlug}`);
+        if (conflictPost && conflictPost.id) {
+          return { 
+            statusCode: 409, 
+            headers, 
+            body: JSON.stringify({ success: false, error: 'A post with this title already exists' }) 
+          };
+        }
+
+        // Move to new slug
+        updatedPost.slug = newSlug;
+        await redis.hset(`blog:post:${newSlug}`, updatedPost);
+        await redis.del(`blog:post:${slug}`);
+
+        // Update posts lists
+        await redis.lrem('blog:posts_list', 1, slug);
+        await redis.lpush('blog:posts_list', newSlug);
+        await redis.lrem(`account:${accountId}:blog:posts`, 1, slug);
+        await redis.lpush(`account:${accountId}:blog:posts`, newSlug);
+
+        // Parse tags back for response
+        const responsePost = { ...updatedPost, tags: parseTags(updatedPost.tags) };
+        return { 
+          statusCode: 200, 
+          headers, 
+          body: JSON.stringify({ 
+            success: true, 
+            data: responsePost,
+            accountContext: { accountId, role }
+          }) 
+        };
+      }
+    }
+
+    await redis.hset(`blog:post:${slug}`, updatedPost);
+
+    // Parse tags back for response
+    const responsePost = { ...updatedPost, tags: parseTags(updatedPost.tags) };
+    return { 
+      statusCode: 200, 
+      headers, 
+      body: JSON.stringify({ 
+        success: true, 
+        data: responsePost,
+        accountContext: { accountId, role }
+      }) 
+    };
+  } catch (error) {
+    console.error('Update post error:', error);
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Internal server error' }) };
+  }
+}
+
+// Handle deleting blog posts
+async function handleDeletePost(slug, accountContext) {
+  const headers = getCorsHeaders();
+  const { accountId, userId, role } = accountContext;
+
+  try {
+    const existingPost = await redis.hgetall(`blog:post:${slug}`);
+    if (!existingPost || !existingPost.id) {
+      return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
+    }
+
+    // Verify account access - check both new account-based and legacy user-based ownership
+    const hasAccess = existingPost.accountId === accountId || (existingPost.userId === userId && !existingPost.accountId);
+    if (!hasAccess) {
+      return { 
+        statusCode: 403, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Access denied' }) 
+      };
+    }
+
+    // Check if user has delete permissions
+    if (role === 'viewer' || (role === 'editor' && existingPost.createdBy !== userId && existingPost.userId !== userId)) {
+      return { 
+        statusCode: 403, 
+        headers, 
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to delete content' }) 
+      };
+    }
+
+    // Delete post and remove from all lists
+    await redis.del(`blog:post:${slug}`);
+    await redis.lrem('blog:posts_list', 1, slug);
+    await redis.lrem(`account:${accountId}:blog:posts`, 1, slug);
+
+    return { 
+      statusCode: 200, 
+      headers, 
+      body: JSON.stringify({ 
+        success: true, 
+        message: 'Post deleted successfully',
+        accountContext: { accountId, role }
+      }) 
+    };
+  } catch (error) {
+    console.error('Delete post error:', error);
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Internal server error' }) };
+  }
+}
 
 // Seed some initial blog posts if they don't exist (for template demonstration)
 const seedBlogPosts = async () => {
@@ -77,7 +444,8 @@ const seedBlogPosts = async () => {
         summary: 'Welcome to your new AI-enhanced application template, ready to be customized!',
         content: '# Welcome to Your New App!\n\nThis is a sample blog post. You can store your posts in **Markdown** format in Upstash Redis.\n\n## Features\n\n* Netlify Functions\n* Upstash Redis\n* React Frontend\n\nStart building something amazing!',
         tags: JSON.stringify(['welcome', 'ai', 'template']),
-        imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1000&q=80'
+        imageUrl: 'https://images.unsplash.com/photo-1620712943543-bcc4688e7485?ixlib=rb-1.2.1&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1000&q=80',
+        isPublic: 'true'
       },
       {
         id: 'getting-started-with-redis',
@@ -88,6 +456,7 @@ const seedBlogPosts = async () => {
         summary: 'A quick guide on how this template uses Upstash Redis for data persistence.',
         content: '## Upstash Redis Integration\n\nThis template demonstrates storing blog posts, notes, and user data in Upstash Redis. \n\nEach blog post is stored as a HASH with its content and metadata. A sorted set `blog:posts:by_date` can be used to fetch posts chronologically.',
         tags: JSON.stringify(['redis', 'netlify', 'tutorial']),
+        isPublic: 'true'
       }
     ];
 
@@ -112,9 +481,6 @@ exports.handler = async (event, context) => {
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Redis not available' }) };
   }
 
-  // Seed posts on first call - DISABLED for role-based system
-  // await seedBlogPosts();
-
   // Handle both direct function calls and API redirects
   let pathForParsing = event.path;
   if (pathForParsing.startsWith('/.netlify/functions/blog')) {
@@ -126,217 +492,53 @@ exports.handler = async (event, context) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      if (pathParts.length === 0) { // GET /blog (list all posts)
-        const postSlugs = await redis.lrange('blog:posts_list', 0, -1); // Get all posts from list
-        if (!postSlugs || postSlugs.length === 0) {
-          return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
-        }
-        const posts = await Promise.all(
-          postSlugs.map(async slug => {
-            const post = await redis.hgetall(`blog:post:${slug}`);
-            if (post && post.id) {
-              // Parse tags back to array - handle both string and array cases
-              if (typeof post.tags === 'string') {
-                try {
-                  post.tags = JSON.parse(post.tags);
-                } catch {
-                  post.tags = [];
-                }
-              } else if (Array.isArray(post.tags)) {
-                // Tags are already an array, keep as is
-                post.tags = post.tags;
-              } else {
-                post.tags = [];
-              }
-            }
-            return post;
-          })
-        );
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: posts.filter(p => p && p.id) }) };
-      } else if (pathParts.length === 1) { // GET /blog/:slug
-        const slug = pathParts[0];
-        const post = await redis.hgetall(`blog:post:${slug}`);
-        if (!post || !post.id) {
-          return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
-        }
-        // Parse tags back to array - handle both string and array cases
-        if (typeof post.tags === 'string') {
-          try {
-            post.tags = JSON.parse(post.tags);
-          } catch {
-            post.tags = [];
-          }
-        } else if (Array.isArray(post.tags)) {
-          // Tags are already an array, keep as is
-          post.tags = post.tags;
-        } else {
-          post.tags = [];
-        }
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: post }) };
-      }
+      // Public GET requests - can access public posts without authentication
+      return await handleGetPosts(pathParts, event.queryStringParameters);
     }
 
     // Authentication required for all non-GET operations
-    const user = verifyAuth(event);
-    if (!user) {
-      return { statusCode: 401, headers, body: JSON.stringify({ success: false, error: 'Authentication required' }) };
-    }
-
-    let data;
-    try {
-      data = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-    } catch (error) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
-    }
+    const userId = await authenticateUser(event);
+    
+    // Get account context (from query param or use default personal account)
+    const requestedAccountId = event.queryStringParameters?.accountId;
+    const accountContext = await getCurrentAccountContext(userId, requestedAccountId);
 
     if (event.httpMethod === 'POST') {
-      // Create new blog post
-      const { title, content, summary, tags, imageUrl } = data;
-      if (!title || !content) {
-        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Title and content are required' }) };
-      }
-
-      const slug = slugify(title);
-      const id = `${Date.now()}-${slug}`;
-      const post = {
-        id,
-        slug,
-        title,
-        content,
-        summary: summary || '',
-        author: user.email || 'Anonymous',
-        authorId: user.userId, // Store the author's user ID
-        publishedDate: new Date().toISOString(),
-        tags: JSON.stringify(Array.isArray(tags) ? tags : []),
-        imageUrl: imageUrl || '',
-        updatedDate: new Date().toISOString()
-      };
-
-      // Check if slug already exists
-      const existingPost = await redis.hgetall(`blog:post:${slug}`);
-      if (existingPost && existingPost.id) {
-        return { statusCode: 409, headers, body: JSON.stringify({ success: false, error: 'A post with this title already exists' }) };
-      }
-
-      await redis.hset(`blog:post:${slug}`, post);
-      await redis.lpush('blog:posts_list', slug);
-
-      // Parse tags back for response
-      const responsePost = { ...post, tags: JSON.parse(post.tags) };
-      return { statusCode: 201, headers, body: JSON.stringify({ success: true, data: responsePost }) };
+      return await handleCreatePost(event, accountContext);
     }
 
     if (event.httpMethod === 'PUT') {
-      // Update existing blog post
       if (pathParts.length !== 1) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Post slug required' }) };
       }
-
-      const slug = pathParts[0];
-      const existingPost = await redis.hgetall(`blog:post:${slug}`);
-      if (!existingPost || !existingPost.id) {
-        return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
-      }
-
-      // Check permissions: user can only edit their own posts, admin can edit any post
-      const isAdmin = user.role === 'admin';
-      const isOwner = existingPost.authorId === user.userId;
-
-      if (!isAdmin && !isOwner) {
-        return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'You can only edit your own blog posts' }) };
-      }
-
-      const { title, content, summary, tags, imageUrl } = data;
-
-      // Parse existing tags
-      let existingTags = [];
-      try {
-        existingTags = JSON.parse(existingPost.tags || '[]');
-      } catch {
-        existingTags = [];
-      }
-
-      const updatedPost = {
-        ...existingPost,
-        ...(title && { title }),
-        ...(content && { content }),
-        ...(summary !== undefined && { summary }),
-        ...(tags && { tags: JSON.stringify(Array.isArray(tags) ? tags : []) }),
-        ...(imageUrl !== undefined && { imageUrl }),
-        updatedDate: new Date().toISOString()
-      };
-
-      // If title changed, update slug
-      if (title && title !== existingPost.title) {
-        const newSlug = slugify(title);
-        if (newSlug !== slug) {
-          // Check if new slug already exists
-          const conflictPost = await redis.hgetall(`blog:post:${newSlug}`);
-          if (conflictPost && conflictPost.id) {
-            return { statusCode: 409, headers, body: JSON.stringify({ success: false, error: 'A post with this title already exists' }) };
-          }
-
-          // Move to new slug
-          updatedPost.slug = newSlug;
-          await redis.hset(`blog:post:${newSlug}`, updatedPost);
-          await redis.del(`blog:post:${slug}`);
-
-          // Update posts list
-          await redis.lrem('blog:posts_list', 1, slug);
-          await redis.lpush('blog:posts_list', newSlug);
-
-          // Parse tags back for response
-          const responsePost = { ...updatedPost };
-          try {
-            responsePost.tags = JSON.parse(updatedPost.tags || '[]');
-          } catch {
-            responsePost.tags = [];
-          }
-          return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: responsePost }) };
-        }
-      }
-
-      await redis.hset(`blog:post:${slug}`, updatedPost);
-
-      // Parse tags back for response
-      const responsePost = { ...updatedPost };
-      try {
-        responsePost.tags = JSON.parse(updatedPost.tags || '[]');
-      } catch {
-        responsePost.tags = [];
-      }
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: responsePost }) };
+      return await handleUpdatePost(event, pathParts[0], accountContext);
     }
 
     if (event.httpMethod === 'DELETE') {
-      // Delete blog post
       if (pathParts.length !== 1) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Post slug required' }) };
       }
-
-      const slug = pathParts[0];
-      const existingPost = await redis.hgetall(`blog:post:${slug}`);
-      if (!existingPost || !existingPost.id) {
-        return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
-      }
-
-      // Check permissions: user can only delete their own posts, admin can delete any post
-      const isAdmin = user.role === 'admin';
-      const isOwner = existingPost.authorId === user.userId;
-
-      if (!isAdmin && !isOwner) {
-        return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'You can only delete your own blog posts' }) };
-      }
-
-      await redis.del(`blog:post:${slug}`);
-      await redis.lrem('blog:posts_list', 1, slug);
-
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Post deleted successfully' }) };
+      return await handleDeletePost(pathParts[0], accountContext);
     }
 
     return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Route not found' }) };
   } catch (error) {
     console.error('Blog function error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Internal server error' }) };
+
+    // Handle different types of authentication errors
+    const isAuthError = error.message === 'No token provided' ||
+      error.message === 'Invalid token format' ||
+      error.message === 'Invalid token' ||
+      error.message === 'Access denied to account' ||
+      error.message === 'No accounts found for user' ||
+      error.name === 'JsonWebTokenError' ||
+      error.name === 'TokenExpiredError' ||
+      error.name === 'NotBeforeError';
+
+    return { 
+      statusCode: isAuthError ? 401 : 500, 
+      headers, 
+      body: JSON.stringify({ success: false, error: error.message || 'Internal server error' }) 
+    };
   }
 };

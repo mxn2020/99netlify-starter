@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../utils/api';
+import { notesApi } from '../utils/api';
+import { useAccount } from '../contexts/AccountContext';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { Note } from '../types';
-import { Search, Plus, Grid, List, Calendar, Tag, FileText } from 'lucide-react';
+import { Search, Plus, Grid, List, Calendar, Tag, FileText, Users } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { cn } from '../utils/cn';
 
 const NotesPage: React.FC = () => {
+  const { currentAccount } = useAccount();
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -26,14 +28,20 @@ const NotesPage: React.FC = () => {
   const fetchNotes = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (selectedCategory) params.append('category', selectedCategory);
-      if (selectedTags.length > 0) params.append('tags', selectedTags.join(','));
-      params.append('sortBy', sortBy);
-      params.append('sortOrder', sortOrder);
+      const params: any = {};
+      if (searchTerm) params.search = searchTerm;
+      if (selectedCategory) params.category = selectedCategory;
+      if (selectedTags.length > 0) params.tags = selectedTags.join(',');
+      params.sortBy = sortBy;
+      params.sortOrder = sortOrder;
 
-      const response = await api.get(`/notes?${params.toString()}`);
+      let response;
+      if (currentAccount) {
+        response = await notesApi.getNotesForAccount(currentAccount.id, params);
+      } else {
+        response = await notesApi.getNotes(params);
+      }
+      
       setNotes(response.data.notes || []);
     } catch (error) {
       console.error('Error fetching notes:', error);
@@ -44,7 +52,7 @@ const NotesPage: React.FC = () => {
 
   useEffect(() => {
     fetchNotes();
-  }, [searchTerm, selectedCategory, selectedTags, sortBy, sortOrder]);
+  }, [searchTerm, selectedCategory, selectedTags, sortBy, sortOrder, currentAccount]);
 
   const handleTagToggle = (tag: string) => {
     setSelectedTags(prev =>
@@ -77,11 +85,20 @@ const NotesPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-            My Notes
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              Notes
+            </h1>
+            {currentAccount && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-md text-sm">
+                <Users className="w-3 h-3" />
+                {currentAccount.name}
+              </div>
+            )}
+          </div>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             {notes.length} {notes.length === 1 ? 'note' : 'notes'} found
+            {currentAccount && ` in ${currentAccount.name}`}
           </p>
         </div>
         <Link to="/notes/new">

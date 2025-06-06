@@ -11,12 +11,21 @@ import {
   FlaskConical,
   TestTube,
   Flag,
-  Zap
+  Zap,
+  Users
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useAuth } from '../../hooks/useAuth';
 import { useFeatureFlag } from '../../hooks/useFeatureFlags';
+
+interface NavigationItem {
+  name: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  badge?: string;
+}
 
 interface SidebarProps {
   isOpen: boolean;
@@ -28,19 +37,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   const { user } = useAuth();
   const qstashEnabled = useFeatureFlag('upstash_qstash');
 
-  const navigation = [
+  const navigation: NavigationItem[] = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Notes', href: '/notes', icon: FileText },
     { name: 'Blog Admin', href: '/admin/blog', icon: BookOpen, adminOnly: true },
     { name: 'Public Blog', href: '/blog', icon: BookOpen },
     { name: 'Examples', href: '/examples', icon: FlaskConical },
+    { name: 'Accounts', href: '/accounts', icon: Users },
     { name: 'Profile', href: '/profile', icon: User },
     { name: 'Settings', href: '/settings', icon: Settings },
     { name: 'Test Suite', href: '/test', icon: TestTube },
   ];
 
   // Add admin-only routes with feature flag integration
-  const adminNavigation = [
+  const adminNavigation: NavigationItem[] = [
     { 
       name: 'Feature Flags', 
       href: '/admin/feature-flags', 

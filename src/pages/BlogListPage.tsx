@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../utils/api';
+import { blogApi } from '../utils/api';
 import { BlogPost } from '../types';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import BlogCard from '../components/blog/BlogCard';
@@ -14,7 +14,7 @@ const BlogListPage: React.FC = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await api.get('/blog');
+        const response = await blogApi.getPosts();
         if (response.data.success) {
           setPosts(response.data.data);
         } else {

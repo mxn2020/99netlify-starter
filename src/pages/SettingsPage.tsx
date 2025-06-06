@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useFeatureFlag, useFeatureFlags } from '../hooks/useFeatureFlags';
 import { Bell, Moon, Sun, Monitor, Shield, Key, Eye, EyeOff, Save, Mail, Lock, Cookie } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -8,10 +9,12 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import PasswordStrength from '../components/auth/PasswordStrength';
-import { api } from '../utils/api';
+import { featureFlagsApi } from '../utils/api';
 
 const SettingsPage: React.FC = () => {
   const { user, updateUser, changePassword } = useAuth();
+  const { refetchFlags } = useFeatureFlags();
+  const bearerAuthEnabled = useFeatureFlag('bearer_token_auth');
   const [activeTab, setActiveTab] = useState('general');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -47,21 +50,10 @@ const SettingsPage: React.FC = () => {
   const [authMode, setAuthMode] = useState<'cookie' | 'bearer'>('cookie');
   const [isUpdatingAuthMode, setIsUpdatingAuthMode] = useState(false);
 
-  // Check current auth mode from feature flags
+  // Sync auth mode with feature flag
   useEffect(() => {
-    const checkAuthMode = () => {
-      const featureFlags = localStorage.getItem('featureFlags');
-      if (featureFlags) {
-        try {
-          const flags = JSON.parse(featureFlags);
-          setAuthMode(flags.bearer_token_auth?.enabled ? 'bearer' : 'cookie');
-        } catch (e) {
-          setAuthMode('cookie');
-        }
-      }
-    };
-    checkAuthMode();
-  }, []);
+    setAuthMode(bearerAuthEnabled ? 'bearer' : 'cookie');
+  }, [bearerAuthEnabled]);
 
   const handleSecurityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -79,29 +71,14 @@ const SettingsPage: React.FC = () => {
     setSuccessMessage('');
 
     try {
-      // Get current feature flags
-      const featureFlags = JSON.parse(localStorage.getItem('featureFlags') || '{}');
-
-      // Update the Bearer token auth flag
-      featureFlags.bearer_token_auth = {
-        ...featureFlags.bearer_token_auth,
-        enabled: newMode === 'bearer'
-      };
-
-      // Save updated flags to localStorage
-      localStorage.setItem('featureFlags', JSON.stringify(featureFlags));
-
       // Update the backend feature flag via API
-      try {
-        await api.put('/feature-flags/bearer_token_auth', {
-          enabled: newMode === 'bearer'
-        });
-      } catch (apiError) {
-        console.warn('Failed to update server-side feature flag:', apiError);
-        // Continue with local change even if server update fails
-      }
+      await featureFlagsApi.updateFlag('bearer_token_auth', {
+        enabled: newMode === 'bearer'
+      });
 
-      setAuthMode(newMode);
+      // Refetch flags to get the latest state
+      await refetchFlags();
+
       setSuccessMessage(
         `Authentication mode changed to ${newMode === 'bearer' ? 'Bearer Token' : 'HTTP-only Cookie'}. ` +
         'You may need to log out and back in for the change to take full effect.'

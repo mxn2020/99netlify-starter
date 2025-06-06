@@ -1,7 +1,7 @@
 // src/pages/admin/FeatureFlagsPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { api } from '../../utils/api';
+import { featureFlagsApi } from '../../utils/api';
 import { FeatureFlag } from '../../types/featureFlags';
 import { Button } from '../../components/ui/button';
 import {
@@ -43,7 +43,7 @@ const FeatureFlagsPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get('/feature-flags');
+      const response = await featureFlagsApi.getFlags();
       if (response.data.success) {
         setFlags(response.data.data || []);
       } else {
@@ -79,7 +79,7 @@ const FeatureFlagsPage: React.FC = () => {
       setError(null);
       setSuccessMessage(null);
 
-      const response = await api.put(`/feature-flags/${flagId}`, updates);
+      const response = await featureFlagsApi.updateFlag(flagId, updates);
 
       if (response.data.success) {
         setFlags(prevFlags =>
@@ -109,7 +109,7 @@ const FeatureFlagsPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const response = await api.post('/feature-flags/reset');
+      const response = await featureFlagsApi.resetAllFlags();
 
       if (response.data.success) {
         setFlags(response.data.data || []);

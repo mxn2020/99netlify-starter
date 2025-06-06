@@ -19,6 +19,7 @@ const {
   recordFailedLogin,
   clearFailedLoginAttempts,
 } = require('./security-utils.cjs');
+const { generateUserId } = require('../secure-id-utils.cjs');
 
 // Initialize Redis
 const redis = new Redis({
@@ -233,8 +234,8 @@ async function handleRegister(event) {
     // Hash password with increased salt rounds
     const hashedPassword = await bcrypt.hash(password, SECURITY_CONFIG.BCRYPT_ROUNDS);
 
-    // Generate user ID
-    const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate secure user ID
+    const userId = generateUserId();
 
     // Create user object
     const user = {
@@ -253,6 +254,40 @@ async function handleRegister(event) {
     // Store user data
     await redis.set(`user:${userId}`, JSON.stringify(user));
     await redis.set(`user:email:${sanitizedEmail}`, userId);
+
+    // Create personal account for the user
+    const { generateAccountId } = require('../secure-id-utils.cjs');
+    const accountId = generateAccountId();
+    const now = new Date().toISOString();
+
+    const personalAccount = {
+      id: accountId,
+      name: `${sanitizedUsername}'s Personal Account`,
+      type: 'personal',
+      description: 'Personal account',
+      ownerId: userId,
+      createdAt: now,
+      updatedAt: now,
+      settings: {
+        allowInvites: false,
+        defaultMemberRole: 'viewer',
+      },
+    };
+
+    // Store account and membership
+    await redis.set(`account:${accountId}`, JSON.stringify(personalAccount));
+    
+    const ownerMembership = {
+      userId,
+      accountId,
+      role: 'owner',
+      joinedAt: now,
+      invitedBy: userId,
+    };
+
+    await redis.set(`account:${accountId}:member:${userId}`, JSON.stringify(ownerMembership));
+    await redis.sadd(`account:${accountId}:members`, userId);
+    await redis.sadd(`user:${userId}:accounts`, accountId);
 
     // Generate secure JWT token
     const token = generateSecureToken(user);

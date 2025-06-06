@@ -1,27 +1,14 @@
 // src/contexts/AuthContext.tsx
 import React, { createContext, useState, useEffect, ReactNode } from 'react';
-import { api } from '../utils/api';
+import { authApi, qstashApi } from '../utils/api';
 import { User, AuthContextType } from '../types';
+import { isBearerAuthEnabledSync } from '../utils/featureFlags';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
   children: ReactNode;
 }
-
-// Helper function to check if Bearer token authentication is enabled
-const isBearerAuthEnabled = () => {
-  const featureFlags = localStorage.getItem('featureFlags');
-  if (featureFlags) {
-    try {
-      const flags = JSON.parse(featureFlags);
-      return flags.bearer_token_auth?.enabled === true;
-    } catch (e) {
-      return false;
-    }
-  }
-  return false;
-};
 
 const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -35,7 +22,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const checkAuth = async () => {
       try {
         // For Bearer mode, check if we have a stored token first
-        const useBearerAuth = isBearerAuthEnabled();
+        const useBearerAuth = isBearerAuthEnabledSync();
         if (useBearerAuth) {
           const storedToken = localStorage.getItem('authToken');
           if (!storedToken) {
@@ -45,7 +32,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // Try to get user info from API
-        const response = await api.get('/auth/me');
+        const response = await authApi.me();
         if (response.data.user) {
           setUser(response.data.user);
           setToken(response.data.token || 'cookie-based');
@@ -66,7 +53,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Helper function to schedule welcome email via QStash
   const scheduleWelcomeEmail = async (email: string, name: string) => {
     try {
-      await api.post('/qstash/welcome-email', {
+      await qstashApi.scheduleWelcomeEmail({
         email,
         name
       });
@@ -79,13 +66,13 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
+      const response = await authApi.login({ email, password });
 
       if (response.data.user && response.data.success) {
         const { user: userData, token: authToken } = response.data;
         setUser(userData);
 
-        const useBearerAuth = isBearerAuthEnabled();
+        const useBearerAuth = isBearerAuthEnabledSync();
         if (useBearerAuth && authToken) {
           // Store token in localStorage for Bearer mode
           localStorage.setItem('authToken', authToken);
@@ -108,13 +95,13 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const register = async (email: string, password: string, name: string) => {
     try {
-      const response = await api.post('/auth/register', { email, password, username: name });
+      const response = await authApi.register({ email, password, username: name });
 
       if (response.data.user && response.data.success) {
         const { user: userData, token: authToken } = response.data;
         setUser(userData);
 
-        const useBearerAuth = isBearerAuthEnabled();
+        const useBearerAuth = isBearerAuthEnabledSync();
         if (useBearerAuth && authToken) {
           // Store token in localStorage for Bearer mode
           localStorage.setItem('authToken', authToken);
@@ -141,12 +128,12 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = async () => {
     try {
       // Call logout endpoint to clear httpOnly cookies and blacklist token server-side
-      await api.delete('/auth/logout');
+      await authApi.logout();
     } catch (error) {
       console.warn('Logout API call failed, proceeding with client-side cleanup:', error);
     } finally {
       // Always clear client-side data regardless of API call result
-      const useBearerAuth = isBearerAuthEnabled();
+      const useBearerAuth = isBearerAuthEnabledSync();
       if (useBearerAuth) {
         // Clear token from localStorage in Bearer mode
         localStorage.removeItem('authToken');
@@ -160,7 +147,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (user) {
       try {
         // Make API call to update user in the database
-        const response = await api.put('/auth/profile', userData);
+        const response = await authApi.updateProfile(userData);
 
         if (response.data.user) {
           const updatedUser = response.data.user;
@@ -176,7 +163,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
     try {
-      const response = await api.put('/auth/password', {
+      const response = await authApi.changePassword({
         currentPassword,
         newPassword,
       });

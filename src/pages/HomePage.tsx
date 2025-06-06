@@ -10,7 +10,7 @@ import {
   Cloud, Palette, RefreshCw, Activity, Cog
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { api } from '../utils/api';
+import { blogApi } from '../utils/api';
 import { BlogPost } from '../types';
 import dayjs from 'dayjs';
 import { ShadcnLogo, VitejsLogo, TailwindcssLogo, ReactLogo, TypescriptLogo, UpstashLogo, NetlifyLogo, ZodLogo } from './Logos';
@@ -37,7 +37,7 @@ const HomePage: React.FC = () => {
     const fetchBlogPosts = async () => {
       try {
         setLoadingPosts(true);
-        const response = await api.get('/blog');
+        const response = await blogApi.getPosts();
         if (response.data.success) {
           // Get only the latest 3 posts for homepage preview
           setBlogPosts(response.data.data.slice(0, 3));

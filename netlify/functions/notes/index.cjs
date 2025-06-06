@@ -1,7 +1,7 @@
 const { Redis } = require('@upstash/redis');
 const jwt = require('jsonwebtoken');
-const { nanoid } = require('nanoid');
 const { parse } = require('cookie');
+const { generateNoteId } = require('../secure-id-utils.cjs');
 
 // Initialize Redis
 const redis = new Redis({
@@ -62,6 +62,45 @@ async function authenticateUser(event) {
   }
 }
 
+// Get user's current account context
+async function getCurrentAccountContext(userId, accountId = null) {
+  try {
+    // If specific accountId is provided, validate user's access to it
+    if (accountId) {
+      const membershipData = await redis.get(`account:${accountId}:member:${userId}`);
+      if (!membershipData) {
+        throw new Error('Access denied to account');
+      }
+      const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
+      return {
+        accountId,
+        userId,
+        role: membership.role
+      };
+    }
+
+    // Get user's personal account as default
+    const userAccounts = await redis.lrange(`user:${userId}:accounts`, 0, -1);
+    if (userAccounts.length === 0) {
+      throw new Error('No accounts found for user');
+    }
+
+    // Use the first account (personal account) as default
+    const defaultAccountId = userAccounts[0];
+    const membershipData = await redis.get(`account:${defaultAccountId}:member:${userId}`);
+    const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
+    
+    return {
+      accountId: defaultAccountId,
+      userId,
+      role: membership.role
+    };
+  } catch (error) {
+    console.error('Error getting account context:', error);
+    throw error;
+  }
+}
+
 exports.handler = async (event) => {
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
@@ -79,24 +118,28 @@ exports.handler = async (event) => {
 
     // Authenticate user for all requests
     const userId = await authenticateUser(event);
+    
+    // Get account context (from query param or use default personal account)
+    const requestedAccountId = queryStringParameters?.accountId;
+    const accountContext = await getCurrentAccountContext(userId, requestedAccountId);
 
     switch (httpMethod) {
       case 'GET':
         if (noteId && noteId !== 'notes') {
-          return await handleGetNote(noteId, userId);
+          return await handleGetNote(noteId, accountContext);
         } else {
-          return await handleGetNotes(userId, queryStringParameters);
+          return await handleGetNotes(accountContext, queryStringParameters);
         }
       case 'POST':
-        return await handleCreateNote(event, userId);
+        return await handleCreateNote(event, accountContext);
       case 'PUT':
         if (noteId) {
-          return await handleUpdateNote(event, noteId, userId);
+          return await handleUpdateNote(event, noteId, accountContext);
         }
         break;
       case 'DELETE':
         if (noteId) {
-          return await handleDeleteNote(noteId, userId);
+          return await handleDeleteNote(noteId, accountContext);
         }
         break;
     }
@@ -113,6 +156,8 @@ exports.handler = async (event) => {
     const isAuthError = error.message === 'No token provided' ||
       error.message === 'Invalid token format' ||
       error.message === 'Invalid token' ||
+      error.message === 'Access denied to account' ||
+      error.message === 'No accounts found for user' ||
       error.name === 'JsonWebTokenError' ||
       error.name === 'TokenExpiredError' ||
       error.name === 'NotBeforeError';
@@ -125,12 +170,23 @@ exports.handler = async (event) => {
   }
 };
 
-async function handleGetNotes(userId, queryParams) {
+async function handleGetNotes(accountContext, queryParams) {
   try {
     const { search, category, tags, sortBy = 'updatedAt', sortOrder = 'desc', page = 1, limit = 20 } = queryParams || {};
+    const { accountId, userId } = accountContext;
 
-    // Get user's note IDs
-    const noteIds = await redis.lrange(`user:${userId}:notes`, 0, -1);
+    // Get account's note IDs - check both new account-based structure and legacy user-based structure
+    let noteIds = [];
+    
+    // Try account-based notes first
+    const accountNoteIds = await redis.lrange(`account:${accountId}:notes`, 0, -1);
+    if (accountNoteIds.length > 0) {
+      noteIds = accountNoteIds;
+    } else {
+      // Fallback to user-based notes for backwards compatibility
+      const userNoteIds = await redis.lrange(`user:${userId}:notes`, 0, -1);
+      noteIds = userNoteIds;
+    }
 
     if (noteIds.length === 0) {
       return {
@@ -152,7 +208,11 @@ async function handleGetNotes(userId, queryParams) {
           return null;
         }
       })
-      .filter(note => note !== null);
+      .filter(note => note !== null)
+      .filter(note => {
+        // Filter by account access - check both accountId and legacy userId
+        return note.accountId === accountId || (note.userId === userId && !note.accountId);
+      });
 
     // Apply filters
     if (search) {
@@ -206,6 +266,7 @@ async function handleGetNotes(userId, queryParams) {
         total,
         page: pageNum,
         totalPages: Math.ceil(total / limitNum),
+        accountContext: { accountId, role: accountContext.role }
       }),
     };
   } catch (error) {
@@ -214,8 +275,9 @@ async function handleGetNotes(userId, queryParams) {
   }
 }
 
-async function handleGetNote(noteId, userId) {
+async function handleGetNote(noteId, accountContext) {
   try {
+    const { accountId, userId } = accountContext;
     const noteData = await redis.get(`note:${noteId}`);
 
     if (!noteData) {
@@ -228,8 +290,9 @@ async function handleGetNote(noteId, userId) {
 
     const note = typeof noteData === 'string' ? JSON.parse(noteData) : noteData;
 
-    // Verify ownership
-    if (note.userId !== userId) {
+    // Verify account access - check both new account-based and legacy user-based ownership
+    const hasAccess = note.accountId === accountId || (note.userId === userId && !note.accountId);
+    if (!hasAccess) {
       return {
         statusCode: 403,
         headers: corsHeaders,
@@ -240,7 +303,10 @@ async function handleGetNote(noteId, userId) {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ 
+        note,
+        accountContext: { accountId, role: accountContext.role }
+      }),
     };
   } catch (error) {
     console.error('Get note error:', error);
@@ -248,8 +314,9 @@ async function handleGetNote(noteId, userId) {
   }
 }
 
-async function handleCreateNote(event, userId) {
+async function handleCreateNote(event, accountContext) {
   try {
+    const { accountId, userId, role } = accountContext;
     const requestBody = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
     const { title, content, category = 'general', tags = [], isPublic = false } = requestBody;
 
@@ -261,12 +328,23 @@ async function handleCreateNote(event, userId) {
       };
     }
 
-    const noteId = nanoid();
+    // Check if user has permission to create content in this account
+    if (role === 'viewer') {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Insufficient permissions to create content' }),
+      };
+    }
+
+    const noteId = generateNoteId();
     const now = new Date().toISOString();
 
     const note = {
       id: noteId,
-      userId,
+      accountId, // Link to account instead of just user
+      userId, // Keep user for attribution
+      createdBy: userId,
       title,
       content,
       category,
@@ -279,23 +357,31 @@ async function handleCreateNote(event, userId) {
     // Store note
     await redis.set(`note:${noteId}`, JSON.stringify(note));
 
-    // Add to user's notes list
+    // Add to account's notes list (new structure)
+    await redis.lpush(`account:${accountId}:notes`, noteId);
+
+    // Also add to user's notes list for backwards compatibility
     await redis.lpush(`user:${userId}:notes`, noteId);
 
     // Add to category index if not general
     if (category !== 'general') {
       await redis.sadd(`category:${category}:notes`, noteId);
+      await redis.sadd(`account:${accountId}:category:${category}:notes`, noteId);
     }
 
     // Add to tag indices
     for (const tag of note.tags) {
       await redis.sadd(`tag:${tag}:notes`, noteId);
+      await redis.sadd(`account:${accountId}:tag:${tag}:notes`, noteId);
     }
 
     return {
       statusCode: 201,
       headers: corsHeaders,
-      body: JSON.stringify({ note }),
+      body: JSON.stringify({ 
+        note,
+        accountContext: { accountId, role }
+      }),
     };
   } catch (error) {
     console.error('Create note error:', error);
@@ -303,8 +389,9 @@ async function handleCreateNote(event, userId) {
   }
 }
 
-async function handleUpdateNote(event, noteId, userId) {
+async function handleUpdateNote(event, noteId, accountContext) {
   try {
+    const { accountId, userId, role } = accountContext;
     const noteData = await redis.get(`note:${noteId}`);
 
     if (!noteData) {
@@ -317,12 +404,22 @@ async function handleUpdateNote(event, noteId, userId) {
 
     const existingNote = typeof noteData === 'string' ? JSON.parse(noteData) : noteData;
 
-    // Verify ownership
-    if (existingNote.userId !== userId) {
+    // Verify account access - check both new account-based and legacy user-based ownership
+    const hasAccess = existingNote.accountId === accountId || (existingNote.userId === userId && !existingNote.accountId);
+    if (!hasAccess) {
       return {
         statusCode: 403,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Access denied' }),
+      };
+    }
+
+    // Check if user has permission to edit content in this account
+    if (role === 'viewer') {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Insufficient permissions to edit content' }),
       };
     }
 
@@ -331,19 +428,24 @@ async function handleUpdateNote(event, noteId, userId) {
       ...existingNote,
       ...updates,
       id: noteId, // Ensure ID doesn't change
-      userId, // Ensure userId doesn't change
+      accountId: existingNote.accountId || accountId, // Preserve or set accountId
+      userId: existingNote.userId, // Preserve original creator
+      createdBy: existingNote.createdBy || existingNote.userId, // Preserve original creator
+      updatedBy: userId, // Track who updated it
       updatedAt: new Date().toISOString(),
     };
 
     // Handle category changes
     if (updates.category && updates.category !== existingNote.category) {
-      // Remove from old category
+      // Remove from old category indices
       if (existingNote.category !== 'general') {
         await redis.srem(`category:${existingNote.category}:notes`, noteId);
+        await redis.srem(`account:${accountId}:category:${existingNote.category}:notes`, noteId);
       }
-      // Add to new category
+      // Add to new category indices
       if (updates.category !== 'general') {
         await redis.sadd(`category:${updates.category}:notes`, noteId);
+        await redis.sadd(`account:${accountId}:category:${updates.category}:notes`, noteId);
       }
     }
 
@@ -352,10 +454,12 @@ async function handleUpdateNote(event, noteId, userId) {
       // Remove from old tag indices
       for (const tag of existingNote.tags) {
         await redis.srem(`tag:${tag}:notes`, noteId);
+        await redis.srem(`account:${accountId}:tag:${tag}:notes`, noteId);
       }
       // Add to new tag indices
       for (const tag of updatedNote.tags) {
         await redis.sadd(`tag:${tag}:notes`, noteId);
+        await redis.sadd(`account:${accountId}:tag:${tag}:notes`, noteId);
       }
     }
 
@@ -365,7 +469,10 @@ async function handleUpdateNote(event, noteId, userId) {
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ note: updatedNote }),
+      body: JSON.stringify({ 
+        note: updatedNote,
+        accountContext: { accountId, role }
+      }),
     };
   } catch (error) {
     console.error('Update note error:', error);
@@ -373,8 +480,9 @@ async function handleUpdateNote(event, noteId, userId) {
   }
 }
 
-async function handleDeleteNote(noteId, userId) {
+async function handleDeleteNote(noteId, accountContext) {
   try {
+    const { accountId, userId, role } = accountContext;
     const noteData = await redis.get(`note:${noteId}`);
 
     if (!noteData) {
@@ -387,8 +495,9 @@ async function handleDeleteNote(noteId, userId) {
 
     const note = typeof noteData === 'string' ? JSON.parse(noteData) : noteData;
 
-    // Verify ownership
-    if (note.userId !== userId) {
+    // Verify account access - check both new account-based and legacy user-based ownership
+    const hasAccess = note.accountId === accountId || (note.userId === userId && !note.accountId);
+    if (!hasAccess) {
       return {
         statusCode: 403,
         headers: corsHeaders,
@@ -396,22 +505,43 @@ async function handleDeleteNote(noteId, userId) {
       };
     }
 
-    // Remove from all indices
-    await redis.del(`note:${noteId}`);
-    await redis.lrem(`user:${userId}:notes`, 0, noteId);
-
-    if (note.category !== 'general') {
-      await redis.srem(`category:${note.category}:notes`, noteId);
+    // Check if user has delete permissions
+    if (role === 'viewer' || (role === 'editor' && note.createdBy !== userId && note.userId !== userId)) {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Insufficient permissions to delete content' }),
+      };
     }
 
+    // Remove from all indices
+    await redis.del(`note:${noteId}`);
+    
+    // Remove from account notes list
+    await redis.lrem(`account:${accountId}:notes`, 0, noteId);
+    
+    // Remove from user notes list (backwards compatibility)
+    await redis.lrem(`user:${note.userId || userId}:notes`, 0, noteId);
+
+    // Remove from category indices
+    if (note.category !== 'general') {
+      await redis.srem(`category:${note.category}:notes`, noteId);
+      await redis.srem(`account:${accountId}:category:${note.category}:notes`, noteId);
+    }
+
+    // Remove from tag indices
     for (const tag of note.tags) {
       await redis.srem(`tag:${tag}:notes`, noteId);
+      await redis.srem(`account:${accountId}:tag:${tag}:notes`, noteId);
     }
 
     return {
       statusCode: 200,
       headers: corsHeaders,
-      body: JSON.stringify({ message: 'Note deleted successfully' }),
+      body: JSON.stringify({ 
+        message: 'Note deleted successfully',
+        accountContext: { accountId, role }
+      }),
     };
   } catch (error) {
     console.error('Delete note error:', error);

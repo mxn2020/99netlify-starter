@@ -4,6 +4,7 @@ const { Client, Receiver } = require('@upstash/qstash');
 const jwt = require('jsonwebtoken');
 const { parse } = require('cookie');
 const { getWebhookUrl, getCorsHeaders } = require('../platform-utils.cjs');
+const { generateTaskId, generateNotificationId } = require('../secure-id-utils.cjs');
 
 // Initialize Redis and QStash
 const redis = new Redis({
@@ -172,7 +173,7 @@ async function handleScheduleTask(event, userId) {
       };
     }
 
-    const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const taskId = generateTaskId();
     const webhookUrl = getWebhookUrl('qstash/webhook');
 
     // Prepare QStash message options
@@ -503,7 +504,7 @@ async function processNotification(payload) {
   console.log(`Processing notification for user ${userId}: ${type} - ${message}`);
 
   // Store notification in Redis
-  const notificationId = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const notificationId = generateNotificationId();
   const notification = {
     id: notificationId,
     userId,
@@ -530,7 +531,7 @@ async function processNotification(payload) {
 
 // Helper function to schedule welcome email
 async function scheduleWelcomeEmail(userId, { email, name }) {
-  const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const taskId = generateTaskId();
   const webhookUrl = getWebhookUrl('qstash/webhook');
 
   const messageOptions = {

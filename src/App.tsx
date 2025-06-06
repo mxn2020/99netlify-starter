@@ -2,7 +2,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { AccountProvider } from './contexts/AccountContext';
 import { BlogAdminProvider } from './contexts/BlogAdminContext';
+import { FeatureFlagsProvider } from './contexts/FeatureFlagsContext';
 import { useAuth } from './hooks/useAuth';
 import MainLayout from './components/layout/MainLayout';
 
@@ -21,6 +23,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
+import AccountsPage from './pages/AccountsPage';
 import TestPage from './pages/TestPage';
 import NotFoundPage from './pages/NotFoundPage';
 
@@ -225,6 +228,14 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="accounts"
+            element={
+              <ProtectedRoute>
+                <AccountsPage />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Test Tools Route */}
           <Route
@@ -247,7 +258,11 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <AccountProvider>
+        <FeatureFlagsProvider>
+          <AppContent />
+        </FeatureFlagsProvider>
+      </AccountProvider>
     </AuthProvider>
   );
 }

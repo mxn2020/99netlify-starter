@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useBlogAdmin } from '../contexts/BlogAdminContext';
+import { useAccount } from '../contexts/AccountContext';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Building2, User } from 'lucide-react';
 
 const BlogEditorPage: React.FC = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { fetchPost, createPost, updatePost } = useBlogAdmin();
+  const { currentAccount } = useAccount();
   const isEditing = Boolean(slug);
 
   const [formData, setFormData] = useState({
@@ -48,6 +51,11 @@ const BlogEditorPage: React.FC = () => {
     e.preventDefault();
     if (!formData.title.trim() || !formData.content.trim()) {
       setError('Title and content are required');
+      return;
+    }
+
+    if (!currentAccount) {
+      setError('Please select an account to create or edit blog posts');
       return;
     }
 
@@ -100,12 +108,31 @@ const BlogEditorPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
-          {isEditing ? 'Edit Blog Post' : 'Create New Blog Post'}
-        </h1>
-        <p className="text-gray-600 mt-2">
-          {isEditing ? 'Update your blog post' : 'Share your thoughts with the world'}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              {isEditing ? 'Edit Blog Post' : 'Create New Blog Post'}
+            </h1>
+            <p className="text-gray-600 mt-2">
+              {isEditing ? 'Update your blog post' : 'Share your thoughts with the world'}
+            </p>
+          </div>
+          {currentAccount && (
+            <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              {currentAccount.type === 'personal' ? (
+                <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              )}
+              <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {currentAccount.name}
+              </span>
+              <span className="text-xs text-blue-600 dark:text-blue-400 capitalize">
+                ({currentAccount.type})
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {error && (

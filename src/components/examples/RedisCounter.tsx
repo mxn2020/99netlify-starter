@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../utils/api';
+import { counterApi } from '../../utils/api';
 import { CounterData } from '../../types';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import { Button } from '../ui/button';
@@ -15,7 +15,7 @@ const RedisCounter: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await api.get('/counter');
+      const response = await counterApi.getCounter();
       if (response.data.success) {
         setCounterData(response.data.data);
       } else {
@@ -37,7 +37,7 @@ const RedisCounter: React.FC = () => {
     try {
       setIsIncrementing(true);
       setError(null);
-      const response = await api.post('/counter');
+      const response = await counterApi.increment();
       if (response.data.success) {
         setCounterData(response.data.data);
       } else {
@@ -54,7 +54,7 @@ const RedisCounter: React.FC = () => {
   const resetCounter = async () => {
     try {
       setError(null);
-      const response = await api.delete('/counter');
+      const response = await counterApi.reset();
       if (response.data.success) {
         setCounterData({ count: 0 });
       } else {

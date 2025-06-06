@@ -1,22 +1,11 @@
 import React, { createContext, useContext, ReactNode } from 'react';
-import { useAuth } from '../hooks/useAuth';
-
-interface BlogPost {
-  id: string;
-  slug: string;
-  title: string;
-  author: string;
-  publishedDate: string;
-  summary: string;
-  content: string;
-  tags: string[];
-  imageUrl?: string;
-  updatedDate?: string;
-}
+import { useAccount } from './AccountContext';
+import { blogApi } from '../utils/api';
+import { BlogPost } from '../types';
 
 interface BlogAdminContextType {
-  createPost: (postData: Omit<BlogPost, 'id' | 'slug' | 'author' | 'publishedDate' | 'updatedDate'>) => Promise<BlogPost>;
-  updatePost: (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'author' | 'publishedDate'>>) => Promise<BlogPost>;
+  createPost: (postData: Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>) => Promise<BlogPost>;
+  updatePost: (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>>) => Promise<BlogPost>;
   deletePost: (slug: string) => Promise<void>;
   fetchPosts: () => Promise<BlogPost[]>;
   fetchPost: (slug: string) => Promise<BlogPost>;
@@ -37,74 +26,79 @@ interface BlogAdminProviderProps {
 }
 
 export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }) => {
-  const { token } = useAuth();
+  const { currentAccount } = useAccount();
 
-  const createPost = async (postData: Omit<BlogPost, 'id' | 'slug' | 'author' | 'publishedDate' | 'updatedDate'>): Promise<BlogPost> => {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/blog`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(postData),
-    });
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to create post');
+  const createPost = async (postData: Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>): Promise<BlogPost> => {
+    if (!currentAccount) {
+      throw new Error('No account selected');
     }
-
-    return result.data;
+    
+    try {
+      const response = await blogApi.createPost(postData);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to create post');
+      }
+      return response.data.data;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to create post');
+    }
   };
 
-  const updatePost = async (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'author' | 'publishedDate'>>): Promise<BlogPost> => {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/blog/${slug}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-      body: JSON.stringify(postData),
-    });
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to update post');
+  const updatePost = async (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>>): Promise<BlogPost> => {
+    if (!currentAccount) {
+      throw new Error('No account selected');
     }
-
-    return result.data;
+    
+    try {
+      const response = await blogApi.updatePost(slug, postData);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to update post');
+      }
+      return response.data.data;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to update post');
+    }
   };
 
   const deletePost = async (slug: string): Promise<void> => {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/blog/${slug}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to delete post');
+    if (!currentAccount) {
+      throw new Error('No account selected');
+    }
+    
+    try {
+      const response = await blogApi.deletePost(slug);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to delete post');
+      }
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to delete post');
     }
   };
 
   const fetchPosts = async (): Promise<BlogPost[]> => {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/blog`);
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to fetch posts');
+    try {
+      // Public endpoint - no authentication required
+      const response = await blogApi.getPosts();
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to fetch posts');
+      }
+      return response.data.data || [];
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to fetch posts');
     }
-    return result.data || [];
   };
 
   const fetchPost = async (slug: string): Promise<BlogPost> => {
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/blog/${slug}`);
-    const result = await response.json();
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to fetch post');
+    try {
+      // Public endpoint - no authentication required
+      const response = await blogApi.getPost(slug);
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to fetch post');
+      }
+      return response.data.data;
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Failed to fetch post');
     }
-    return result.data;
   };
 
   const value: BlogAdminContextType = {

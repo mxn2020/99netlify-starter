@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../utils/api';
+import { guestbookApi } from '../../utils/api';
 import { GuestbookEntry } from '../../types';
 import LoadingSpinner from '../shared/LoadingSpinner';
 import { Button } from '../ui/button';
@@ -19,7 +19,7 @@ const Guestbook: React.FC = () => {
   const fetchEntries = async () => {
     try {
       setIsLoading(true);
-      const response = await api.get('/guestbook');
+      const response = await guestbookApi.getEntries();
       if (response.data.success) {
         setEntries(response.data.data);
       }
@@ -42,7 +42,7 @@ const Guestbook: React.FC = () => {
     try {
       setIsSubmitting(true);
       setError(null);
-      const response = await api.post('/guestbook', {
+      const response = await guestbookApi.addEntry({
         name: name.trim(),
         message: message.trim()
       });

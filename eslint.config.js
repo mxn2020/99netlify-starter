@@ -7,21 +7,23 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     ignores: [
-      'dist',
-      'build',
-      'node_modules',
+      'dist/**',
+      'build/**',
+      'coverage/**',
+      'node_modules/**',
+      '.netlify/**',
       '*.config.js',
       '*.config.ts',
-      'netlify',
-      'functions',
-      '.netlify/**/*',
-      'scripts/**/*.js',
-      'scripts/**/*.cjs'
+      'netlify/**',
+      'functions/**',
+      '.env*',
+      '.vscode/**',
+      '.idea/**'
     ]
   },
   // Node.js files configuration
   {
-    files: ['**/*.cjs', 'test-*.js', 'clear-*.js'],
+    files: ['**/*.cjs', 'test-*.js', 'clear-*.js', 'verify-*.js', 'scripts/**/*.js'],
     extends: [js.configs.recommended],
     languageOptions: {
       ecmaVersion: 2020,

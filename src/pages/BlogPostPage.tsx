@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api } from '../utils/api';
+import { blogApi } from '../utils/api';
 import { BlogPost } from '../types';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import BlogPostDisplay from '../components/blog/BlogPostDisplay';
@@ -17,7 +17,7 @@ const BlogPostPage: React.FC = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await api.get(`/blog/${slug}`);
+        const response = await blogApi.getPost(slug);
         if (response.data.success) {
           setPost(response.data.data);
         } else {

@@ -1,4 +1,5 @@
 const { Redis } = require('@upstash/redis');
+const { generateBlogPostId } = require('../netlify/functions/secure-id-utils.cjs');
 require('dotenv').config();
 
 // Initialize Redis
@@ -318,7 +319,7 @@ async function seedBlogPosts() {
       }
       
       // Create unique ID and prepare post data
-      const id = `${Date.now()}-${slug}`;
+      const id = generateBlogPostId();
       const postData = {
         id,
         slug,

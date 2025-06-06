@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { api } from '../utils/api';
+import { notesApi } from '../utils/api';
+import { useAccount } from '../contexts/AccountContext';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { Note } from '../types';
-import { Save, ArrowLeft, Eye, EyeOff, Tag, Plus, X } from 'lucide-react';
+import { Save, ArrowLeft, Eye, EyeOff, Tag, Plus, X, Users } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -14,6 +15,7 @@ import { Label } from '@/components/ui/label';
 const NoteEditorPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { currentAccount } = useAccount();
   const isEditing = id && id !== 'new';
 
   const [note, setNote] = useState<Partial<Note>>({
@@ -35,10 +37,12 @@ const NoteEditorPage: React.FC = () => {
   }, [id, isEditing]);
 
   const fetchNote = async () => {
+    if (!id) return;
+    
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get(`/notes/${id}`);
+      const response = await notesApi.getNote(id);
       setNote(response.data.note);
     } catch (error: any) {
       console.error('Error fetching note:', error);
@@ -72,10 +76,14 @@ const NoteEditorPage: React.FC = () => {
       };
 
       let response;
-      if (isEditing) {
-        response = await api.put(`/notes/${id}`, noteData);
+      if (isEditing && id) {
+        response = await notesApi.updateNote(id, noteData);
       } else {
-        response = await api.post('/notes', noteData);
+        if (currentAccount) {
+          response = await notesApi.createNoteInAccount(currentAccount.id, noteData);
+        } else {
+          response = await notesApi.createNote(noteData);
+        }
       }
 
       navigate(`/notes/${response.data.note.id}`);
@@ -165,6 +173,16 @@ const NoteEditorPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Account Context */}
+      {currentAccount && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <span className="text-sm text-blue-800 dark:text-blue-200">
+            {isEditing ? 'Editing note in' : 'Creating note in'} <strong>{currentAccount.name}</strong>
+          </span>
+        </div>
+      )}
 
       {/* Editor */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">

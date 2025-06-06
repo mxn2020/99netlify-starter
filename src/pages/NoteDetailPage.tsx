@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { api } from '../utils/api';
+import { notesApi } from '../utils/api';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { Note } from '../types';
 import { Edit, Trash2, Calendar, Tag, ArrowLeft, Share, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { cn } from '../utils/cn';
 
 const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -23,10 +22,16 @@ const NoteDetailPage: React.FC = () => {
   }, [id]);
 
   const fetchNote = async () => {
+    if (!id) {
+      setError('No note ID provided');
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
-      const response = await api.get(`/notes/${id}`);
+      const response = await notesApi.getNote(id);
       setNote(response.data.note);
     } catch (error: any) {
       console.error('Error fetching note:', error);
@@ -47,7 +52,7 @@ const NoteDetailPage: React.FC = () => {
     
     try {
       setDeleting(true);
-      await api.delete(`/notes/${note.id}`);
+      await notesApi.deleteNote(note.id);
       navigate('/notes');
     } catch (error) {
       console.error('Error deleting note:', error);
@@ -62,7 +67,7 @@ const NoteDetailPage: React.FC = () => {
     if (!note) return;
 
     try {
-      const response = await api.put(`/notes/${note.id}`, {
+      const response = await notesApi.updateNote(note.id, {
         isPublic: !note.isPublic
       });
       setNote(response.data.note);

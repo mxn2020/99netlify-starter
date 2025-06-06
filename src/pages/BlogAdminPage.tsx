@@ -2,23 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useBlogAdmin } from '../contexts/BlogAdminContext';
 import { useAuth } from '../hooks/useAuth';
+import { useAccount } from '../contexts/AccountContext';
 import { Button } from '@/components/ui/button';
-
-interface BlogPost {
-  id: string;
-  slug: string;
-  title: string;
-  author: string;
-  publishedDate: string;
-  summary: string;
-  content: string;
-  tags: string[];
-  imageUrl?: string;
-  updatedDate?: string;
-}
+import { BlogPost } from '../types';
+import { Building2, User } from 'lucide-react';
 
 const BlogAdminPage: React.FC = () => {
   const { user } = useAuth();
+  const { currentAccount } = useAccount();
   const { fetchPosts, deletePost } = useBlogAdmin();
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +78,21 @@ const BlogAdminPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Blog Management</h1>
           <p className="text-gray-600 mt-2">Create, edit, and manage your blog posts</p>
+          {currentAccount && (
+            <div className="flex items-center space-x-2 mt-3 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 inline-flex">
+              {currentAccount.type === 'personal' ? (
+                <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Building2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              )}
+              <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {currentAccount.name}
+              </span>
+              <span className="text-xs text-blue-600 dark:text-blue-400 capitalize">
+                ({currentAccount.type})
+              </span>
+            </div>
+          )}
         </div>
         <Link
           to="/admin/blog/new"
@@ -157,14 +163,14 @@ const BlogAdminPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      {post.author}
+                      {post.author || 'Unknown Author'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(post.publishedDate).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-wrap gap-1">
-                        {post.tags.slice(0, 2).map((tag, index) => (
+                        {post.tags?.slice(0, 2).map((tag, index) => (
                           <span
                             key={index}
                             className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
@@ -172,9 +178,9 @@ const BlogAdminPage: React.FC = () => {
                             {tag}
                           </span>
                         ))}
-                        {post.tags.length > 2 && (
+                        {(post.tags?.length || 0) > 2 && (
                           <span className="text-xs text-gray-500">
-                            +{post.tags.length - 2} more
+                            +{(post.tags?.length || 0) - 2} more
                           </span>
                         )}
                       </div>

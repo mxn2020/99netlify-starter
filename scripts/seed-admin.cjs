@@ -1,5 +1,6 @@
 const { Redis } = require('@upstash/redis');
 const bcrypt = require('bcryptjs');
+const { generateUserId } = require('../netlify/functions/secure-id-utils.cjs');
 require('dotenv').config({ path: '.env' });
 
 console.log('🔧 Environment check:');
@@ -71,7 +72,7 @@ async function createAdminUser() {
 
     // Create admin user
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
-    const adminId = `user_${Date.now()}_admin`;
+    const adminId = generateUserId();
 
     const adminUser = {
       id: adminId,

@@ -11,12 +11,67 @@ export interface User {
   };
 }
 
+export interface AccountType {
+  name: string;
+  maxMembers: number;
+  features: string[];
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  type: 'personal' | 'family' | 'team' | 'enterprise';
+  description: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  settings: {
+    allowInvites: boolean;
+    defaultMemberRole: string;
+  };
+  typeInfo?: AccountType;
+  userRole?: string;
+  roleInfo?: MemberRole;
+}
+
+export interface MemberRole {
+  name: string;
+  permissions: string[];
+}
+
+export interface AccountMember {
+  userId: string;
+  accountId: string;
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  joinedAt: string;
+  invitedBy: string;
+  user?: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+  };
+  roleInfo?: MemberRole;
+}
+
+export interface AccountInvite {
+  id: string;
+  accountId: string;
+  email: string;
+  role: string;
+  invitedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+}
+
 export interface Note {
   id: string;
   title: string;
   content: string;
   noteTypeId: string;
   userId: string;
+  accountId?: string; // Link to account instead of just user
   category?: string;
   isPublic?: boolean;
   createdAt: string;
@@ -33,6 +88,7 @@ export interface NoteType {
   description?: string;
   isSystem: boolean;
   userId?: string;
+  accountId?: string; // Link to account
   createdAt: string;
 }
 
@@ -42,6 +98,7 @@ export interface BlogPost {
   title: string;
   author?: string;
   authorId?: string;
+  accountId?: string; // Link to account
   publishedDate: string; // ISO Date string
   summary: string;
   content: string; // Markdown content

@@ -4,6 +4,7 @@ import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from 'next-themes';
 import { Button } from '../ui/button';
+import AccountSelector from '../accounts/AccountSelector';
 
 interface NavbarProps {
   toggleSidebar: () => void;
@@ -117,6 +118,8 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, showMenu = false, isFixe
             >
               {resolvedTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
+
+            {isAuthenticated && <AccountSelector />}
 
             {isAuthenticated ? (
               <>
