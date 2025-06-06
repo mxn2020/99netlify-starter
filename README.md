@@ -1,6 +1,6 @@
-# 🚀 Ultimate Hackathon Template
+# 🚀 Ultimate Multi-Platform Hackathon Template
 
-A production-ready React application template built for rapid development during hackathons. Built with modern technologies and best practices to get you from idea to deployment in minutes.
+A production-ready React application template built for rapid development during hackathons. Built with modern technologies and best practices to get you from idea to deployment in minutes on **any major platform** (Netlify, Vercel, and more).
 
 ## 🎯 Perfect For
 - Hackathons and rapid prototyping
@@ -14,11 +14,11 @@ A production-ready React application template built for rapid development during
 
 - **Frontend**: React 18 + TypeScript + Vite
 - **Styling**: Tailwind CSS + shadcn/ui components
-- **Backend**: Netlify Functions (Serverless)
+- **Backend**: Serverless Functions (Platform-agnostic)
+- **Deployment**: Netlify, Vercel, or any serverless platform
 - **Database**: Upstash Redis
 - **Task Queue**: Upstash QStash
 - **Authentication**: JWT with httpOnly cookies + bcrypt
-- **Deployment**: Netlify
 - **Development**: Hot reload, ESLint, TypeScript
 
 ## 🌟 Features Out of the Box
@@ -34,6 +34,15 @@ A production-ready React application template built for rapid development during
 - **NEW**: Enhanced input validation and XSS prevention
 - **NEW**: Secure HTTP headers and CORS configuration
 - **NEW**: Automatic welcome emails via QStash task queue
+
+### ✅ Multi-Platform Deployment
+- **Automatic Platform Detection** for Netlify and Vercel
+- **Universal Serverless Functions** that work across platforms
+- **Smart URL Resolution** with environment auto-detection
+- **Platform-Agnostic CORS** configuration
+- **Webhook URL Generation** for QStash and external services
+- **Environment Variable Validation** with fallbacks
+- **Zero-Config Deployment** on supported platforms
 
 ### ✅ Feature Flags System
 - **Admin-controlled feature toggles** with real-time updates
@@ -101,6 +110,16 @@ cd boltdotnew-template-netlify-redis
 npm install
 ```
 
+### Method 3: Deploy to Vercel
+1. Fork this repository
+2. Connect to Vercel via GitHub
+3. Configure environment variables (see below)
+4. Deploy automatically
+
+> 📖 **Detailed Deployment Guide**: See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete platform-specific instructions and troubleshooting.
+> 
+> 🔧 **Implementation Details**: See [PLATFORM_IMPLEMENTATION.md](./PLATFORM_IMPLEMENTATION.md) for technical details about the platform-agnostic implementation.
+
 ## 🔧 Configuration
 
 ### 1. Create Upstash Redis Database
@@ -114,10 +133,17 @@ npm install
 3. Copy the QStash Token and Signing Keys
 4. Note your webhook endpoint URL for production
 
-### 3. Deploy to Netlify
+### 3. Deploy to Your Platform
+
+#### Option A: Netlify
 1. Connect your GitHub repository to Netlify
 2. Deploy with default settings
 3. Note your Netlify URL (e.g., `https://your-app.netlify.app`)
+
+#### Option B: Vercel
+1. Connect your GitHub repository to Vercel  
+2. Deploy with default settings
+3. Note your Vercel URL (e.g., `https://your-app.vercel.app`)
 
 ### 4. Environment Variables
 Copy the example environment file and configure it:
@@ -141,17 +167,25 @@ QSTASH_NEXT_SIGNING_KEY=your-next-signing-key
 # JWT Secret (required - generate a random string)
 JWT_SECRET=your-super-secret-jwt-key-at-least-32-characters-long
 
-# Frontend API URL (update for production)
-VITE_API_BASE_URL=https://your-app.netlify.app/.netlify/functions
+# Application URL (optional - auto-detected on most platforms)
+VITE_APP_URL=https://your-app.your-platform.app
 ```
 
-> 💡 The `.env.example` file contains all available configuration options with descriptions. Redis, QStash, and JWT settings are required to get started.
+> 💡 **Platform Detection**: The template automatically detects your deployment platform (Netlify, Vercel, etc.) and handles URL configuration accordingly. You only need to set `VITE_APP_URL` if you want to override the auto-detection.
 
-### 5. Netlify Environment Variables
-Copy all variables from `.env` to Netlify:
+### 5. Platform Environment Variables
+
+#### For Netlify:
 1. Go to Netlify Dashboard → Site Settings → Environment Variables
 2. Add each variable from your `.env` file
 3. Redeploy your site
+
+#### For Vercel:
+1. Go to Vercel Dashboard → Project Settings → Environment Variables
+2. Add each variable from your `.env` file  
+3. Redeploy your project
+
+> 💡 **Auto-Configuration**: Both platforms automatically provide `URL`/`VERCEL_URL` and `CONTEXT`/`VERCEL_ENV` variables. You don't need to set these manually.
 
 ### 6. Create Admin User
 ```bash
@@ -202,6 +236,8 @@ npm run build
 npm run test-api
 npm run test-auth-security
 npm run test-feature-flags
+npm run test-platform
+npm run validate-env
 
 # Create admin user
 npm run create_admin

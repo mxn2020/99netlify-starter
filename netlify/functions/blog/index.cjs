@@ -1,6 +1,7 @@
 const { Redis } = require('@upstash/redis');
 const jwt = require('jsonwebtoken');
 const { parse } = require('cookie');
+const { getCorsHeaders } = require('../platform-utils.cjs');
 
 const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
 
@@ -101,12 +102,7 @@ const seedBlogPosts = async () => {
 };
 
 exports.handler = async (event, context) => {
-  const headers = {
-    'Access-Control-Allow-Origin': process.env.URL || 'http://localhost:8888',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Content-Type': 'application/json'
-  };
+  const headers = getCorsHeaders();
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };

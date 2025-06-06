@@ -1,4 +1,5 @@
 const { Redis } = require('@upstash/redis');
+const { getCorsHeaders } = require('../platform-utils.cjs');
 
 let redis;
 try {
@@ -16,12 +17,7 @@ try {
 const redisKey = 'example:counter';
 
 exports.handler = async (event, context) => {
-  const headers = {
-    'Access-Control-Allow-Origin': process.env.URL || 'http://localhost:8888',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Content-Type': 'application/json'
-  };
+  const headers = getCorsHeaders();
 
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };

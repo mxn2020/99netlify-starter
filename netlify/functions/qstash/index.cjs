@@ -3,6 +3,7 @@ const { Redis } = require('@upstash/redis');
 const { Client, Receiver } = require('@upstash/qstash');
 const jwt = require('jsonwebtoken');
 const { parse } = require('cookie');
+const { getWebhookUrl, getCorsHeaders } = require('../platform-utils.cjs');
 
 // Initialize Redis and QStash
 const redis = new Redis({
@@ -24,9 +25,8 @@ const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
 
 // CORS headers
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  ...getCorsHeaders(),
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, Upstash-Signature',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
 // Check if QStash feature is enabled
@@ -173,7 +173,7 @@ async function handleScheduleTask(event, userId) {
     }
 
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const webhookUrl = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/qstash/webhook`;
+    const webhookUrl = getWebhookUrl('qstash/webhook');
 
     // Prepare QStash message options
     const messageOptions = {
@@ -531,7 +531,7 @@ async function processNotification(payload) {
 // Helper function to schedule welcome email
 async function scheduleWelcomeEmail(userId, { email, name }) {
   const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const webhookUrl = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/qstash/webhook`;
+  const webhookUrl = getWebhookUrl('qstash/webhook');
 
   const messageOptions = {
     url: webhookUrl,
