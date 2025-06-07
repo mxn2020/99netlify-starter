@@ -931,47 +931,25 @@ async function scheduleWelcomeEmail(userId, { email, name }) {
     const taskId = generateTaskId();
     const webhookUrl = getWebhookUrl('qstash/webhook');
 
-    // Check if we're in development mode (localhost)
-    const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
-    
-    let qstashResponse;
-    
-    if (isDevelopment) {
-      // In development, simulate QStash behavior
-      console.log(`Development mode: Simulating welcome email for ${email}`);
-      
-      qstashResponse = {
-        messageId: `dev-welcome-${taskId}`,
-        url: webhookUrl,
-        method: 'POST'
-      };
+    // Use QStash for all environments
+    const messageOptions = {
+      url: webhookUrl,
+      body: JSON.stringify({
+        taskId,
+        type: 'welcome_email',
+        payload: { email, name },
+        userId,
+        createdAt: new Date().toISOString()
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Task-ID': taskId,
+        'X-User-ID': userId
+      },
+      delay: 5 // 5 second delay to make registration feel instant
+    };
 
-      // Simulate email processing after delay
-      setTimeout(() => {
-        console.log(`✅ Welcome email simulated for ${name} <${email}>`);
-      }, 2000);
-      
-    } else {
-      // Production mode: Use QStash normally
-      const messageOptions = {
-        url: webhookUrl,
-        body: JSON.stringify({
-          taskId,
-          type: 'welcome_email',
-          payload: { email, name },
-          userId,
-          createdAt: new Date().toISOString()
-        }),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Task-ID': taskId,
-          'X-User-ID': userId
-        },
-        delay: 5 // 5 second delay to make registration feel instant
-      };
-
-      qstashResponse = await qstashClient.publishJSON(messageOptions);
-    }
+    const qstashResponse = await qstashClient.publishJSON(messageOptions);
 
     const task = {
       id: taskId,

@@ -215,7 +215,9 @@ function AppContent() {
             path="admin/qstash"
             element={
               <AdminRoute>
-                <QStashPage />
+                <BlogAdminProvider>
+                  <QStashPage />
+                </BlogAdminProvider>
               </AdminRoute>
             }
           />

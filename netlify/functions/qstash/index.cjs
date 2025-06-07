@@ -92,6 +92,8 @@ exports.handler = async (event) => {
       case 'GET':
         if (action === 'tasks') {
           return await handleGetTasks(userId);
+        } else if (action === 'server-time') {
+          return await handleGetServerTime();
         }
         break;
     }
@@ -122,102 +124,33 @@ async function handleScheduleTask(event, userId) {
 
     const taskId = generateTaskId();
     const webhookUrl = getWebhookUrl('qstash/webhook');
-
-    // Check if we're in development mode (localhost)
-    const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
     
-    let qstashResponse;
-    
-    if (isDevelopment) {
-      // In development, simulate QStash behavior by processing tasks immediately
-      console.log(`Development mode: Processing task ${taskId} immediately instead of queueing`);
-      
-      // Simulate QStash response
-      qstashResponse = {
-        messageId: `dev-${taskId}`,
-        url: webhookUrl,
-        method: 'POST'
-      };
-
-      // Process the task immediately in development
-      setTimeout(async () => {
-        try {
-          console.log(`Processing development task: ${taskId}, type: ${type}`);
-          
-          let result;
-          switch (type) {
-            case 'welcome_email':
-              result = await processWelcomeEmail(payload);
-              break;
-            case 'scheduled_blog_post':
-              result = await processScheduledBlogPost(payload);
-              break;
-            case 'cleanup_task':
-              result = await processCleanupTask(payload);
-              break;
-            case 'notification':
-              result = await processNotification(payload);
-              break;
-            default:
-              throw new Error(`Unknown task type: ${type}`);
-          }
-
-          // Update task as completed
-          const taskKey = `task:${taskId}`;
-          const existingTask = await redis.get(taskKey);
-          if (existingTask) {
-            const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
-            task.status = 'completed';
-            task.result = result;
-            task.updatedAt = new Date().toISOString();
-            await redis.set(taskKey, JSON.stringify(task));
-          }
-
-          console.log(`Development task ${taskId} completed successfully`);
-        } catch (error) {
-          console.error(`Development task ${taskId} failed:`, error);
-          
-          // Update task as failed
-          const taskKey = `task:${taskId}`;
-          const existingTask = await redis.get(taskKey);
-          if (existingTask) {
-            const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
-            task.status = 'failed';
-            task.error = error.message;
-            task.updatedAt = new Date().toISOString();
-            await redis.set(taskKey, JSON.stringify(task));
-          }
-        }
-      }, delay ? delay * 1000 : 100); // Process after delay or 100ms
-      
-    } else {
-      // Production mode: Use QStash normally
-      const messageOptions = {
-        url: webhookUrl,
-        body: JSON.stringify({
-          taskId,
-          type,
-          payload,
-          userId,
-          createdAt: new Date().toISOString()
-        }),
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Task-ID': taskId,
-          'X-User-ID': userId
-        }
-      };
-
-      // Add scheduling if specified
-      if (scheduledFor) {
-        messageOptions.notBefore = new Date(scheduledFor).getTime() / 1000;
-      } else if (delay) {
-        messageOptions.delay = delay;
+    // Use QStash for all environments
+    const messageOptions = {
+      url: webhookUrl,
+      body: JSON.stringify({
+        taskId,
+        type,
+        payload,
+        userId,
+        createdAt: new Date().toISOString()
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Task-ID': taskId,
+        'X-User-ID': userId
       }
+    };
 
-      // Publish to QStash
-      qstashResponse = await qstashClient.publishJSON(messageOptions);
+    // Add scheduling if specified
+    if (scheduledFor) {
+      messageOptions.notBefore = new Date(scheduledFor).getTime() / 1000;
+    } else if (delay) {
+      messageOptions.delay = delay;
     }
+
+    // Publish to QStash
+    const qstashResponse = await qstashClient.publishJSON(messageOptions);
 
     // Store task metadata in Redis
     const task = {
@@ -466,23 +399,76 @@ async function processScheduledBlogPost(payload) {
   console.log(`Processing scheduled blog post: ${postId}, action: ${action}`);
 
   if (action === 'publish') {
-    // Get the blog post from Redis
-    const postData = await redis.hgetall(`blog:post:${postId}`);
+    // First try to get the blog post by slug (postId should be the slug)
+    let postData = await redis.hgetall(`blog:post:${postId}`);
+    let actualSlug = postId;
 
+    // Check if we found the post by slug
     if (!postData || !postData.id) {
-      throw new Error(`Blog post ${postId} not found`);
+      console.log(`Post not found by slug ${postId}, searching by ID...`);
+      
+      // Get all posts and find by ID (fallback if postId is actually the ID)
+      const postsList = await redis.lrange('blog:posts_list', 0, -1);
+      let found = false;
+      
+      for (const slug of postsList) {
+        const post = await redis.hgetall(`blog:post:${slug}`);
+        if (post && post.id === postId) {
+          postData = post;
+          actualSlug = slug;
+          found = true;
+          console.log(`Found post by ID ${postId} at slug ${slug}`);
+          break;
+        }
+      }
+      
+      if (!found) {
+        throw new Error(`Blog post with ID or slug "${postId}" not found`);
+      }
+    } else {
+      console.log(`Found post by slug ${postId}`);
     }
 
-    // Update post status to published if it was scheduled
-    if (postData.status === 'scheduled') {
-      await redis.hset(`blog:post:${postId}`, 'status', 'published');
-      await redis.hset(`blog:post:${postId}`, 'publishedDate', new Date().toISOString());
+    // Verify the post can be published
+    if (!postData.status || (postData.status !== 'scheduled' && postData.status !== 'draft')) {
+      console.log(`Post ${actualSlug} has status '${postData.status}', skipping publication`);
+      return {
+        success: true,
+        message: `Blog post ${actualSlug} already published or has invalid status`,
+        postId: actualSlug,
+        originalPostId: postId,
+        timestamp: new Date().toISOString()
+      };
     }
+
+    // Update post status to published and respect the original isPublic setting
+    const updates = {
+      status: 'published',
+      publishedDate: new Date().toISOString(),
+      updatedDate: new Date().toISOString()
+    };
+    
+    // Preserve the user's original isPublic preference
+    // No need to modify isPublic here - it should already be set correctly
+    console.log(`Publishing post ${actualSlug} with isPublic: ${postData.isPublic}`);
+    
+    // Remove scheduledFor field since it's now published
+    if (postData.scheduledFor) {
+      await redis.hdel(`blog:post:${actualSlug}`, 'scheduledFor');
+    }
+    
+    // Apply updates
+    for (const [key, value] of Object.entries(updates)) {
+      await redis.hset(`blog:post:${actualSlug}`, key, value);
+    }
+    
+    console.log(`Blog post ${actualSlug} (ID: ${postData.id}) published successfully with isPublic: ${postData.isPublic}`);
 
     return {
       success: true,
-      message: `Blog post ${postId} published successfully`,
-      postId,
+      message: `Blog post ${actualSlug} published successfully`,
+      postId: actualSlug,
+      originalPostId: postId,
       timestamp: new Date().toISOString()
     };
   }
@@ -550,74 +536,25 @@ async function scheduleWelcomeEmail(userId, { email, name }) {
   const taskId = generateTaskId();
   const webhookUrl = getWebhookUrl('qstash/webhook');
 
-  // Check if we're in development mode (localhost)
-  const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
-  
-  let qstashResponse;
-  
-  if (isDevelopment) {
-    // In development, simulate QStash behavior
-    console.log(`Development mode: Simulating welcome email for ${email}`);
-    
-    qstashResponse = {
-      messageId: `dev-welcome-${taskId}`,
-      url: webhookUrl,
-      method: 'POST'
-    };
+  // Use QStash for all environments
+  const messageOptions = {
+    url: webhookUrl,
+    body: JSON.stringify({
+      taskId,
+      type: 'welcome_email',
+      payload: { email, name },
+      userId,
+      createdAt: new Date().toISOString()
+    }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Task-ID': taskId,
+      'X-User-ID': userId
+    },
+    delay: 5 // 5 second delay to make registration feel instant
+  };
 
-    // Simulate email processing after delay
-    setTimeout(async () => {
-      try {
-        const result = await processWelcomeEmail({ email, name });
-        console.log(`Development welcome email completed:`, result);
-        
-        // Update task as completed
-        const taskKey = `task:${taskId}`;
-        const existingTask = await redis.get(taskKey);
-        if (existingTask) {
-          const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
-          task.status = 'completed';
-          task.result = result;
-          task.updatedAt = new Date().toISOString();
-          await redis.set(taskKey, JSON.stringify(task));
-        }
-      } catch (error) {
-        console.error(`Development welcome email failed:`, error);
-        
-        // Update task as failed
-        const taskKey = `task:${taskId}`;
-        const existingTask = await redis.get(taskKey);
-        if (existingTask) {
-          const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
-          task.status = 'failed';
-          task.error = error.message;
-          task.updatedAt = new Date().toISOString();
-          await redis.set(taskKey, JSON.stringify(task));
-        }
-      }
-    }, 2000);
-    
-  } else {
-    // Production mode: Use QStash normally
-    const messageOptions = {
-      url: webhookUrl,
-      body: JSON.stringify({
-        taskId,
-        type: 'welcome_email',
-        payload: { email, name },
-        userId,
-        createdAt: new Date().toISOString()
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Task-ID': taskId,
-        'X-User-ID': userId
-      },
-      delay: 5 // 5 second delay to make registration feel instant
-    };
-
-    qstashResponse = await qstashClient.publishJSON(messageOptions);
-  }
+  const qstashResponse = await qstashClient.publishJSON(messageOptions);
 
   const task = {
     id: taskId,
@@ -636,4 +573,43 @@ async function scheduleWelcomeEmail(userId, { email, name }) {
   await redis.lpush(`user:${userId}:tasks`, taskId);
 
   return task;
+}
+
+async function handleGetServerTime() {
+  try {
+    const serverTime = new Date();
+    
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          serverTime: serverTime.toISOString(),
+          timestamp: serverTime.getTime(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          formattedTime: serverTime.toLocaleString('en-US', {
+            timeZone: 'UTC',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          }) + ' UTC'
+        }
+      }),
+    };
+  } catch (error) {
+    console.error('Get server time error:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: false,
+        error: 'Failed to get server time'
+      }),
+    };
+  }
 }

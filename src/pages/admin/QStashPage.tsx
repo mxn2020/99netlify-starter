@@ -2,7 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { qstashApi } from '../../utils/api/qstash';
+import { useBlogAdmin } from '../../contexts/BlogAdminContext';
 import { QStashTask, TaskType, TaskStatus, TaskScheduleRequest, TaskStatistics } from '../../types/qstash';
+import { BlogPost } from '../../types';
 import { Button } from '../../components/ui/button';
 import {
   Card,
@@ -51,14 +53,17 @@ import {
   Bell,
   Plus,
   Activity,
-  BarChart3
+  BarChart3,
+  Calendar
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import LoadingSpinner from '../../components/shared/LoadingSpinner';
 
 const QStashPage: React.FC = () => {
   const { user } = useAuth();
+  const { fetchPosts } = useBlogAdmin();
   const [tasks, setTasks] = useState<QStashTask[]>([]);
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [scheduling, setScheduling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +71,7 @@ const QStashPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all');
   const [filterType, setFilterType] = useState<TaskType | 'all'>('all');
   const [isNewTaskDialogOpen, setIsNewTaskDialogOpen] = useState(false);
+  const [isBlogScheduleDialogOpen, setIsBlogScheduleDialogOpen] = useState(false);
 
   // New task form state
   const [newTask, setNewTask] = useState<TaskScheduleRequest>({
@@ -74,6 +80,19 @@ const QStashPage: React.FC = () => {
     scheduledFor: undefined,
   });
   const [payloadText, setPayloadText] = useState('{}');
+  
+  // Blog scheduling state
+  const [selectedPost, setSelectedPost] = useState<string>('');
+  const [scheduleDateTime, setScheduleDateTime] = useState<string>('');
+
+  // Server time state
+  const [serverTime, setServerTime] = useState<{
+    serverTime: string;
+    timestamp: number;
+    timezone: string;
+    formattedTime: string;
+  } | null>(null);
+  const [serverTimeLoading, setServerTimeLoading] = useState(false);
 
   const fetchTasks = async () => {
     try {
@@ -93,8 +112,80 @@ const QStashPage: React.FC = () => {
     }
   };
 
+  const loadBlogPosts = async () => {
+    try {
+      const posts = await fetchPosts();
+      // Filter for draft and scheduled posts that can be scheduled for publication
+      const schedulablePosts = posts.filter(post => 
+        post.status === 'draft' || 
+        (post.status === 'scheduled' && (!post.scheduledFor || new Date(post.scheduledFor) > new Date()))
+      );
+      setBlogPosts(schedulablePosts);
+    } catch (err) {
+      console.error('Error fetching blog posts:', err);
+    }
+  };
+
+  const handleScheduleBlogPost = async () => {
+    try {
+      if (!selectedPost || !scheduleDateTime) {
+        setError('Please select a blog post and schedule date/time');
+        return;
+      }
+
+      setScheduling(true);
+      setError(null);
+      setSuccessMessage(null);
+
+      const taskData: TaskScheduleRequest = {
+        type: 'scheduled_blog_post',
+        payload: {
+          postId: selectedPost,
+          action: 'publish'
+        },
+        scheduledFor: scheduleDateTime,
+      };
+
+      const response = await qstashApi.scheduleTask(taskData);
+
+      if (response.data.success) {
+        setSuccessMessage(`Blog post scheduled for publication`);
+        setIsBlogScheduleDialogOpen(false);
+        setSelectedPost('');
+        setScheduleDateTime('');
+        fetchTasks(); // Refresh the task list
+        setTimeout(() => setSuccessMessage(null), 3000);
+      } else {
+        setError(response.data.error || 'Failed to schedule blog post');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to schedule blog post');
+      console.error('Error scheduling blog post:', err);
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  const fetchServerTime = async () => {
+    setServerTimeLoading(true);
+    try {
+      const response = await qstashApi.getServerTime();
+      if (response.data.success && response.data.data) {
+        setServerTime(response.data.data);
+      } else {
+        console.error('Failed to fetch server time:', response.data.error);
+      }
+    } catch (err: any) {
+      console.error('Error fetching server time:', err);
+    } finally {
+      setServerTimeLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchTasks();
+    loadBlogPosts();
+    fetchServerTime();
   }, []);
 
   // Check if user is super-admin
@@ -166,6 +257,9 @@ const QStashPage: React.FC = () => {
     return statusMatch && typeMatch;
   });
 
+  // Get scheduled blog posts
+  const scheduledBlogTasks = tasks.filter(task => task.type === 'scheduled_blog_post');
+
   const getStatusIcon = (status: TaskStatus) => {
     switch (status) {
       case 'pending':
@@ -216,13 +310,67 @@ const QStashPage: React.FC = () => {
       case 'welcome_email':
         return JSON.stringify({ email: 'user@example.com', name: 'John Doe' }, null, 2);
       case 'scheduled_blog_post':
-        return JSON.stringify({ title: 'New Blog Post', content: 'Post content...', publishAt: new Date().toISOString() }, null, 2);
+        return JSON.stringify({ postId: 'hello-ai-world', action: 'publish' }, null, 2);
       case 'cleanup_task':
         return JSON.stringify({ target: 'old_sessions', olderThan: '7d' }, null, 2);
       case 'notification':
         return JSON.stringify({ message: 'Hello, World!', userId: 'user123' }, null, 2);
       default:
         return '{}';
+    }
+  };
+
+  // Helper function to get relative time
+  const getRelativeTime = (date: string, scheduledFor?: string | null): string => {
+    const now = new Date();
+    const targetDate = new Date(date);
+    const diffMs = targetDate.getTime() - now.getTime();
+    const diffAbsMs = Math.abs(diffMs);
+    
+    // For scheduled tasks, check if they should show "posting in X" or "posted X ago"
+    if (scheduledFor) {
+      const scheduledDate = new Date(scheduledFor);
+      const scheduledDiffMs = scheduledDate.getTime() - now.getTime();
+      
+      if (scheduledDiffMs > 0) {
+        // Future scheduled task
+        return getTimeString(scheduledDiffMs, 'posting in');
+      } else {
+        // Past scheduled task (should have been processed)
+        return getTimeString(Math.abs(scheduledDiffMs), 'was scheduled') + ' ago';
+      }
+    }
+    
+    // For non-scheduled tasks, show when they were created/completed
+    if (diffMs > 0) {
+      // Future date (shouldn't happen for createdAt, but handle gracefully)
+      return getTimeString(diffAbsMs, 'in');
+    } else {
+      // Past date
+      return getTimeString(diffAbsMs, '') + ' ago';
+    }
+  };
+
+  const getTimeString = (diffMs: number, prefix: string): string => {
+    const seconds = Math.floor(diffMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    const weeks = Math.floor(days / 7);
+    const months = Math.floor(days / 30);
+    
+    if (months > 0) {
+      return `${prefix} ${months} month${months !== 1 ? 's' : ''}`.trim();
+    } else if (weeks > 0) {
+      return `${prefix} ${weeks} week${weeks !== 1 ? 's' : ''}`.trim();
+    } else if (days > 0) {
+      return `${prefix} ${days} day${days !== 1 ? 's' : ''}`.trim();
+    } else if (hours > 0) {
+      return `${prefix} ${hours} hour${hours !== 1 ? 's' : ''}`.trim();
+    } else if (minutes > 0) {
+      return `${prefix} ${minutes} minute${minutes !== 1 ? 's' : ''}`.trim();
+    } else {
+      return `${prefix} ${seconds} second${seconds !== 1 ? 's' : ''}`.trim();
     }
   };
 
@@ -249,6 +397,65 @@ const QStashPage: React.FC = () => {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <Dialog open={isBlogScheduleDialogOpen} onOpenChange={setIsBlogScheduleDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                Schedule Blog Post
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Schedule Blog Post</DialogTitle>
+                <DialogDescription>
+                  Schedule a draft or existing blog post for publication
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="blog-post">Select Blog Post</Label>
+                  <Select value={selectedPost} onValueChange={setSelectedPost}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a blog post..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {blogPosts.map((post) => (
+                        <SelectItem key={post.id} value={post.id}>
+                          {post.title} ({post.status})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="schedule-time">Publication Date & Time</Label>
+                  <Input
+                    id="schedule-time"
+                    type="datetime-local"
+                    value={scheduleDateTime}
+                    onChange={(e) => setScheduleDateTime(e.target.value)}
+                    min={new Date().toISOString().slice(0, 16)}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsBlogScheduleDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleScheduleBlogPost}
+                    disabled={scheduling || !selectedPost || !scheduleDateTime}
+                    className="flex items-center gap-2"
+                  >
+                    {scheduling && <RefreshCw className="h-4 w-4 animate-spin" />}
+                    Schedule Publication
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={isNewTaskDialogOpen} onOpenChange={setIsNewTaskDialogOpen}>
             <DialogTrigger asChild>
               <Button className="flex items-center gap-2">
@@ -291,6 +498,7 @@ const QStashPage: React.FC = () => {
                     type="datetime-local"
                     value={newTask.scheduledFor || ''}
                     onChange={(e) => setNewTask({ ...newTask, scheduledFor: e.target.value || undefined })}
+                    min={new Date().toISOString().slice(0, 16)}
                   />
                 </div>
                 <div>
@@ -347,9 +555,13 @@ const QStashPage: React.FC = () => {
             <BarChart3 className="h-4 w-4" />
             Overview
           </TabsTrigger>
+          <TabsTrigger value="blog-schedule" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Blog Schedule
+          </TabsTrigger>
           <TabsTrigger value="tasks" className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
-            Tasks
+            All Tasks
           </TabsTrigger>
         </TabsList>
 
@@ -398,6 +610,56 @@ const QStashPage: React.FC = () => {
             </Card>
           </div>
 
+          {/* Server Time Card */}
+          <Card className="mb-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Server Time
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {serverTimeLoading ? (
+                <div className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span className="text-muted-foreground">Loading...</span>
+                </div>
+              ) : serverTime ? (
+                <div className="space-y-2">
+                  <div className="text-2xl font-bold">
+                    {serverTime.formattedTime}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {serverTime.timezone} • {new Date(serverTime.serverTime).toLocaleDateString()}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchServerTime}
+                    className="flex items-center gap-1"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Refresh
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Unable to load server time</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchServerTime}
+                    className="flex items-center gap-1 ml-2"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Retry
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Recent Tasks */}
           <Card>
             <CardHeader>
@@ -424,7 +686,7 @@ const QStashPage: React.FC = () => {
                         <div>
                           <div className="font-medium">{task.type.replace('_', ' ')}</div>
                           <div className="text-sm text-muted-foreground">
-                            {new Date(task.createdAt).toLocaleString()}
+                            {getRelativeTime(task.createdAt, task.scheduledFor)}
                           </div>
                         </div>
                       </div>
@@ -445,6 +707,110 @@ const QStashPage: React.FC = () => {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="blog-schedule">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Scheduled Blog Posts */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Scheduled Blog Posts</CardTitle>
+                <CardDescription>
+                  Blog posts scheduled for future publication ({scheduledBlogTasks.length})
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {scheduledBlogTasks.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No scheduled blog posts found.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {scheduledBlogTasks.map((task) => (
+                      <div key={task.id} className="p-3 border rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="font-medium">
+                            Post ID: {task.payload?.postId || 'Unknown'}
+                          </div>
+                          <Badge className={getStatusColor(task.status)}>
+                            {getStatusIcon(task.status)}
+                            <span className="ml-1">{task.status}</span>
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {task.scheduledFor ? (
+                            <>
+                              Scheduled: {new Date(task.scheduledFor).toLocaleString()}
+                              <div className="text-xs text-muted-foreground font-medium mt-1">
+                                {getRelativeTime(task.scheduledFor, task.scheduledFor)}
+                              </div>
+                            </>
+                          ) : (
+                            'No schedule set'
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Created: {new Date(task.createdAt).toLocaleString()}
+                          <div className="text-xs text-muted-foreground font-medium">
+                            {getRelativeTime(task.createdAt)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Available Draft Posts */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Available Draft Posts</CardTitle>
+                <CardDescription>
+                  Draft posts that can be scheduled for publication ({blogPosts.length})
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {blogPosts.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No draft posts available for scheduling.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {blogPosts.map((post) => (
+                      <div key={post.id} className="p-3 border rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="font-medium truncate">{post.title}</div>
+                          <Badge variant="outline">
+                            {post.status}
+                          </Badge>
+                        </div>
+                        <div className="text-sm text-muted-foreground mb-2">
+                          ID: {post.id}
+                        </div>
+                        {post.scheduledFor && (
+                          <div className="text-sm text-muted-foreground mb-2">
+                            Currently scheduled: {new Date(post.scheduledFor).toLocaleString()}
+                          </div>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedPost(post.id);
+                            setIsBlogScheduleDialogOpen(true);
+                          }}
+                          className="w-full"
+                        >
+                          Schedule Publication
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="tasks">

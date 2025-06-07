@@ -14,4 +14,8 @@ export const qstashApi = {
   // Schedule a custom task
   scheduleTask: (taskData: TaskScheduleRequest): Promise<{ data: TaskResponse }> => 
     api.post('/qstash/schedule', taskData),
+
+  // Get server time
+  getServerTime: (): Promise<{ data: { success: boolean; data?: { serverTime: string; timestamp: number; timezone: string; formattedTime: string }; error?: string } }> => 
+    api.get('/qstash/server-time'),
 };

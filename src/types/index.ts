@@ -109,6 +109,9 @@ export interface BlogPost {
   content: string; // Markdown content
   tags?: string[];
   imageUrl?: string;
+  status?: 'draft' | 'scheduled' | 'published'; // Post status
+  scheduledFor?: string; // ISO Date string for scheduled publishing
+  isPublic?: boolean; // Whether the post is publicly visible
 }
 
 export interface GuestbookEntry {

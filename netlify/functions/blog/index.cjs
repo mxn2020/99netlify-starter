@@ -36,13 +36,63 @@ const parseTags = (tags) => {
   }
 };
 
-// Handle GET requests for blog posts (public access)
-async function handleGetPosts(pathParts, queryParams) {
+// Handle GET requests for blog posts (public access or admin access)
+async function handleGetPosts(pathParts, queryParams, event = null) {
   const headers = getCorsHeaders();
   
   try {
     if (pathParts.length === 0) { // GET /blog (list all posts)
-      // Get posts from both account-based and legacy structures
+      // Check if this is an admin request
+      const isAdminRequest = queryParams?.admin === 'true';
+      
+      if (isAdminRequest) {
+        // Admin request requires authentication
+        if (!event) {
+          return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing request context for admin access' }) };
+        }
+        
+        try {
+          const userId = await authenticateUser(event);
+          
+          // Get user to check permissions
+          const userData = await redis.get(`user:${userId}`);
+          if (!userData) {
+            return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'User not found' }) };
+          }
+          
+          const user = typeof userData === 'string' ? JSON.parse(userData) : userData;
+          
+          // Check if user has admin permissions
+          if (user.role !== 'super-admin') {
+            return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Admin access required' }) };
+          }
+          
+          // Admin user - return all posts without filtering
+          const postSlugs = await redis.lrange('blog:posts_list', 0, -1);
+          if (!postSlugs || postSlugs.length === 0) {
+            return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
+          }
+
+          const allPosts = await Promise.all(
+            postSlugs.map(async slug => {
+              const post = await redis.hgetall(`blog:post:${slug}`);
+              if (post && post.id) {
+                post.tags = parseTags(post.tags);
+              }
+              return post;
+            })
+          );
+
+          // Return all posts for admin (no filtering)
+          const validPosts = allPosts.filter(p => p && p.id);
+          return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: validPosts }) };
+          
+        } catch (authError) {
+          return { statusCode: 401, headers, body: JSON.stringify({ success: false, error: 'Authentication failed' }) };
+        }
+      }
+      
+      // Public request - apply public filtering
       const postSlugs = await redis.lrange('blog:posts_list', 0, -1);
       if (!postSlugs || postSlugs.length === 0) {
         return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
@@ -58,8 +108,19 @@ async function handleGetPosts(pathParts, queryParams) {
         })
       );
 
-      // Filter to only show public posts for unauthenticated requests
-      const publicPosts = posts.filter(p => p && p.id && (p.isPublic !== 'false'));
+      // Filter to only show posts that should be visible to the public
+      const now = new Date();
+      const publicPosts = posts.filter(p => {
+        if (!p || !p.id) return false;
+        
+        // Only show published posts
+        if (p.status !== 'published') return false;
+        
+        // Must be marked as public
+        if (p.isPublic !== 'true') return false;
+        
+        return true;
+      });
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: publicPosts }) };
     } else if (pathParts.length === 1) { // GET /blog/:slug
@@ -70,8 +131,8 @@ async function handleGetPosts(pathParts, queryParams) {
         return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Post not found' }) };
       }
 
-      // Check if post is public for unauthenticated access
-      if (post.isPublic === 'false') {
+      // Check if post is accessible for public viewing
+      if (post.status !== 'published' || post.isPublic !== 'true') {
         return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Access denied' }) };
       }
 
@@ -108,7 +169,7 @@ async function handleCreatePost(event, accountContext) {
       return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
     }
 
-    const { title, content, summary, tags, imageUrl, isPublic = false } = data;
+    const { title, content, summary, tags, imageUrl, isPublic = false, status = 'published', scheduledFor } = data;
     if (!title || !content) {
       return { 
         statusCode: 400, 
@@ -121,6 +182,19 @@ async function handleCreatePost(event, accountContext) {
     const id = generateBlogPostId();
     const now = new Date().toISOString();
 
+    // Determine the actual publication status
+    let actualStatus = status;
+    let actualPublishedDate = now;
+    let actualIsPublic = isPublic; // Always respect the user's public/private choice
+
+    // If scheduled for future, set status to scheduled
+    if (scheduledFor && new Date(scheduledFor) > new Date()) {
+      actualStatus = 'scheduled';
+      actualPublishedDate = scheduledFor;
+      // Keep the user's isPublic preference - it will be used when the post is published
+    }
+    // Draft and scheduled posts keep their public/private setting for when they become published
+
     const post = {
       id,
       slug,
@@ -131,11 +205,13 @@ async function handleCreatePost(event, accountContext) {
       userId, // Creator attribution
       createdBy: userId,
       author: '', // Will be populated from user data
-      publishedDate: now,
+      publishedDate: actualPublishedDate,
       updatedDate: now,
       tags: JSON.stringify(Array.isArray(tags) ? tags : []),
       imageUrl: imageUrl || '',
-      isPublic: isPublic.toString()
+      isPublic: actualIsPublic.toString(),
+      status: actualStatus,
+      ...(scheduledFor && { scheduledFor })
     };
 
     // Get user info for author field
@@ -163,6 +239,17 @@ async function handleCreatePost(event, accountContext) {
     
     // Also add to global posts list for backwards compatibility and public access
     await redis.lpush('blog:posts_list', slug);
+
+    // If this is a scheduled post, create a QStash task to publish it
+    if (actualStatus === 'scheduled' && scheduledFor) {
+      try {
+        await schedulePostPublication(slug, scheduledFor, userId);
+        console.log(`Scheduled publication task created for post: ${slug} at ${scheduledFor}`);
+      } catch (qstashError) {
+        console.error('Failed to schedule post publication:', qstashError);
+        // Don't fail the post creation if QStash scheduling fails
+      }
+    }
 
     // Parse tags back for response
     const responsePost = { ...post, tags: parseTags(post.tags) };
@@ -218,7 +305,20 @@ async function handleUpdatePost(event, slug, accountContext) {
       return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
     }
 
-    const { title, content, summary, tags, imageUrl, isPublic } = data;
+    const { title, content, summary, tags, imageUrl, isPublic, status, scheduledFor } = data;
+
+    // Handle status and scheduling changes
+    let actualStatus = status || existingPost.status || 'published';
+    let actualIsPublic = isPublic !== undefined ? isPublic : (existingPost.isPublic === 'true');
+    let actualScheduledFor = scheduledFor || existingPost.scheduledFor;
+
+    // If scheduled for future, set status to scheduled
+    if (scheduledFor && new Date(scheduledFor) > new Date()) {
+      actualStatus = 'scheduled';
+      // Keep the user's isPublic preference for scheduled posts
+      // The post will respect this setting when published
+    }
+    // Always respect the user's public/private choice regardless of status
 
     const updatedPost = {
       ...existingPost,
@@ -227,7 +327,9 @@ async function handleUpdatePost(event, slug, accountContext) {
       ...(summary !== undefined && { summary }),
       ...(tags && { tags: JSON.stringify(Array.isArray(tags) ? tags : []) }),
       ...(imageUrl !== undefined && { imageUrl }),
-      ...(isPublic !== undefined && { isPublic: isPublic.toString() }),
+      isPublic: actualIsPublic.toString(),
+      status: actualStatus,
+      ...(actualScheduledFor && { scheduledFor: actualScheduledFor }),
       accountId: existingPost.accountId || accountId, // Preserve or set accountId
       updatedBy: userId, // Track who updated it
       updatedDate: new Date().toISOString()
@@ -273,6 +375,18 @@ async function handleUpdatePost(event, slug, accountContext) {
     }
 
     await redis.hset(`blog:post:${slug}`, updatedPost);
+
+    // If this post was updated to scheduled status, create a QStash task to publish it
+    if (actualStatus === 'scheduled' && actualScheduledFor && 
+        (!existingPost.status || existingPost.status !== 'scheduled' || existingPost.scheduledFor !== actualScheduledFor)) {
+      try {
+        await schedulePostPublication(slug, actualScheduledFor, userId);
+        console.log(`Scheduled publication task created for updated post: ${slug} at ${actualScheduledFor}`);
+      } catch (qstashError) {
+        console.error('Failed to schedule post publication:', qstashError);
+        // Don't fail the post update if QStash scheduling fails
+      }
+    }
 
     // Parse tags back for response
     const responsePost = { ...updatedPost, tags: parseTags(updatedPost.tags) };
@@ -403,8 +517,8 @@ exports.handler = async (event, context) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      // Public GET requests - can access public posts without authentication
-      return await handleGetPosts(pathParts, event.queryStringParameters);
+      // GET requests - can be public or admin access
+      return await handleGetPosts(pathParts, event.queryStringParameters, event);
     }
 
     // Authentication required for all non-GET operations
@@ -453,3 +567,128 @@ exports.handler = async (event, context) => {
     };
   }
 };
+
+// Helper function to schedule post publication via QStash
+async function schedulePostPublication(postSlug, scheduledFor, userId) {
+  try {
+    // Check if QStash feature is enabled
+    const flagsData = await redis.get('feature_flags');
+    if (!flagsData) return;
+
+    const flags = typeof flagsData === 'string' ? JSON.parse(flagsData) : flagsData;
+    const qstashEnabled = flags.upstash_qstash?.enabled || false;
+    
+    if (!qstashEnabled) {
+      console.log('QStash is disabled, skipping post publication scheduling');
+      return;
+    }
+
+    // Import QStash client dynamically to avoid loading if not needed
+    const { Client } = require('@upstash/qstash');
+    const { getWebhookUrl } = require('../platform-utils.cjs');
+    const { generateTaskId } = require('../secure-id-utils.cjs');
+
+    const qstashClient = new Client({
+      token: process.env.QSTASH_TOKEN,
+    });
+
+    const taskId = generateTaskId();
+    const webhookUrl = getWebhookUrl('qstash/webhook');
+    
+    // Use QStash for all environments
+    const messageOptions = {
+      url: webhookUrl,
+      body: JSON.stringify({
+        taskId,
+        type: 'scheduled_blog_post',
+        payload: { postId: postSlug, action: 'publish' },
+        userId,
+        createdAt: new Date().toISOString()
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Task-ID': taskId,
+        'X-User-ID': userId
+      },
+      notBefore: new Date(scheduledFor).getTime() / 1000 // QStash expects Unix timestamp
+    };
+
+    const qstashResponse = await qstashClient.publishJSON(messageOptions);
+
+    // Store task metadata in Redis
+    const task = {
+      id: taskId,
+      type: 'scheduled_blog_post',
+      payload: { postId: postSlug, action: 'publish' },
+      scheduledFor,
+      status: 'pending',
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId,
+      qstashMessageId: qstashResponse.messageId
+    };
+
+    await redis.set(`task:${taskId}`, JSON.stringify(task));
+    await redis.lpush(`user:${userId}:tasks`, taskId);
+
+    console.log(`Created QStash task ${taskId} for blog post ${postSlug} scheduled at ${scheduledFor}`);
+    return task;
+
+  } catch (error) {
+    console.error('Error scheduling post publication:', error);
+    throw error;
+  }
+}
+
+// Local function to process scheduled blog post publication (legacy - now using QStash directly)
+async function processScheduledBlogPostLocal(postSlug) {
+  console.log(`Processing scheduled blog post: ${postSlug}, action: publish`);
+
+  // Get the blog post by slug
+  let postData = await redis.hgetall(`blog:post:${postSlug}`);
+
+  if (!postData || !postData.id) {
+    throw new Error(`Blog post with slug "${postSlug}" not found`);
+  }
+
+  // Verify the post can be published
+  if (!postData.status || (postData.status !== 'scheduled' && postData.status !== 'draft')) {
+    console.log(`Post ${postSlug} has status '${postData.status}', skipping publication`);
+    return {
+      success: true,
+      message: `Blog post ${postSlug} already published or has invalid status`,
+      postId: postSlug,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // Update post status to published and respect the original isPublic setting
+  const updates = {
+    status: 'published',
+    publishedDate: new Date().toISOString(),
+    updatedDate: new Date().toISOString()
+  };
+  
+  // Preserve the user's original isPublic preference
+  console.log(`Publishing post ${postSlug} with isPublic: ${postData.isPublic}`);
+  
+  // Remove scheduledFor field since it's now published
+  if (postData.scheduledFor) {
+    await redis.hdel(`blog:post:${postSlug}`, 'scheduledFor');
+  }
+  
+  // Apply updates
+  for (const [key, value] of Object.entries(updates)) {
+    await redis.hset(`blog:post:${postSlug}`, key, value);
+  }
+  
+  console.log(`Blog post ${postSlug} (ID: ${postData.id}) published successfully with isPublic: ${postData.isPublic}`);
+
+  return {
+    success: true,
+    message: `Blog post ${postSlug} published successfully`,
+    postId: postSlug,
+    timestamp: new Date().toISOString()
+  };
+}

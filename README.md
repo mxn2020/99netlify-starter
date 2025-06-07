@@ -412,11 +412,12 @@ await api.post('/qstash/schedule', {
 });
 
 // Schedule a blog post for future publication
+// Note: postId should be the slug of an existing blog post
 await api.post('/qstash/schedule', {
   type: 'scheduled_blog_post',
   payload: { 
-    postId: 'post-123',
-    action: 'publish'
+    postId: 'hello-ai-world', // slug of existing blog post
+    action: 'publish'         // action to perform: 'publish'
   },
   scheduledFor: '2024-01-01T10:00:00Z'
 });
@@ -530,13 +531,7 @@ netlify deploy --prod
 - Verify QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY are set
 - Check that webhook URL is publicly accessible
 - Ensure feature flag 'upstash_qstash' is enabled
-- **Development Mode**: QStash automatically switches to simulation mode for localhost URLs to avoid webhook delivery issues
-
-**QStash in Development:**
-- Tasks are processed immediately instead of being queued
-- No external webhooks are sent (simulated locally)
-- All QStash features work normally, just faster for testing
-- Production deployment automatically uses real QStash webhooks
+- **All Environments**: QStash is used directly in all environments (development and production)
 
 **Feature flags not updating:**
 - Check super admin permissions (user.role === 'super-admin')

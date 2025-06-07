@@ -1,4 +1,4 @@
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext, ReactNode, useCallback } from 'react';
 import { useAccount } from './AccountContext';
 import { blogApi } from '../utils/api';
 import { BlogPost } from '../types';
@@ -28,7 +28,7 @@ interface BlogAdminProviderProps {
 export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }) => {
   const { currentAccount } = useAccount();
 
-  const createPost = async (postData: Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>): Promise<BlogPost> => {
+  const createPost = useCallback(async (postData: Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>): Promise<BlogPost> => {
     if (!currentAccount) {
       throw new Error('No account selected');
     }
@@ -42,9 +42,9 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to create post');
     }
-  };
+  }, [currentAccount]);
 
-  const updatePost = async (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>>): Promise<BlogPost> => {
+  const updatePost = useCallback(async (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>>): Promise<BlogPost> => {
     if (!currentAccount) {
       throw new Error('No account selected');
     }
@@ -58,9 +58,9 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to update post');
     }
-  };
+  }, [currentAccount]);
 
-  const deletePost = async (slug: string): Promise<void> => {
+  const deletePost = useCallback(async (slug: string): Promise<void> => {
     if (!currentAccount) {
       throw new Error('No account selected');
     }
@@ -73,12 +73,12 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to delete post');
     }
-  };
+  }, [currentAccount]);
 
-  const fetchPosts = async (): Promise<BlogPost[]> => {
+  const fetchPosts = useCallback(async (): Promise<BlogPost[]> => {
     try {
-      // Public endpoint - no authentication required
-      const response = await blogApi.getPosts();
+      // Admin endpoint - requires authentication and admin permissions
+      const response = await blogApi.getAdminPosts();
       if (!response.data.success) {
         throw new Error(response.data.error || 'Failed to fetch posts');
       }
@@ -86,9 +86,9 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to fetch posts');
     }
-  };
+  }, []);
 
-  const fetchPost = async (slug: string): Promise<BlogPost> => {
+  const fetchPost = useCallback(async (slug: string): Promise<BlogPost> => {
     try {
       // Public endpoint - no authentication required
       const response = await blogApi.getPost(slug);
@@ -99,7 +99,7 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to fetch post');
     }
-  };
+  }, []);
 
   const value: BlogAdminContextType = {
     createPost,

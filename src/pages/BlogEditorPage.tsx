@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Building2, User } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Building2, User, Calendar, Clock, FileText, Eye, EyeOff, CheckCircle } from 'lucide-react';
 
 const BlogEditorPage: React.FC = () => {
   const { slug } = useParams();
@@ -20,7 +22,10 @@ const BlogEditorPage: React.FC = () => {
     summary: '',
     content: '',
     tags: '',
-    imageUrl: ''
+    imageUrl: '',
+    status: 'published' as 'draft' | 'scheduled' | 'published',
+    scheduledFor: '',
+    isPublic: true
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,7 +42,10 @@ const BlogEditorPage: React.FC = () => {
         summary: post.summary || '',
         content: post.content || '',
         tags: Array.isArray(post.tags) ? post.tags.join(', ') : '',
-        imageUrl: post.imageUrl || ''
+        imageUrl: post.imageUrl || '',
+        status: post.status || 'published',
+        scheduledFor: post.scheduledFor || '',
+        isPublic: post.isPublic !== undefined ? post.isPublic : true
       });
     } catch (err) {
       setError('Failed to load post');
@@ -54,6 +62,20 @@ const BlogEditorPage: React.FC = () => {
       return;
     }
 
+    // Validate scheduling
+    if (formData.status === 'scheduled') {
+      if (!formData.scheduledFor) {
+        setError('Please select a date and time for scheduling');
+        return;
+      }
+      const scheduledDate = new Date(formData.scheduledFor);
+      const now = new Date();
+      if (scheduledDate <= now) {
+        setError('Scheduled date must be in the future');
+        return;
+      }
+    }
+
     if (!currentAccount) {
       setError('Please select an account to create or edit blog posts');
       return;
@@ -68,7 +90,10 @@ const BlogEditorPage: React.FC = () => {
         summary: formData.summary.trim(),
         content: formData.content.trim(),
         tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
-        imageUrl: formData.imageUrl.trim()
+        imageUrl: formData.imageUrl.trim(),
+        status: formData.status,
+        ...(formData.scheduledFor && { scheduledFor: formData.scheduledFor }),
+        isPublic: formData.isPublic
       };
 
       if (isEditing && slug) {
@@ -201,6 +226,159 @@ const BlogEditorPage: React.FC = () => {
           />
           <p className="text-sm text-gray-500 mt-1">Separate tags with commas</p>
         </div>
+
+        {/* Publication Settings Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <FileText className="h-5 w-5" />
+              <span>Publication Settings</span>
+            </CardTitle>
+            <CardDescription>
+              Configure when and how your blog post will be published
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Status Selection */}
+            <div>
+              <Label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Status
+              </Label>
+              <Select
+                value={formData.status}
+                onValueChange={(value: 'draft' | 'scheduled' | 'published') => 
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    status: value,
+                    // Clear scheduledFor if not scheduling
+                    ...(value !== 'scheduled' && { scheduledFor: '' })
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                      <span>Draft</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="scheduled">
+                    <div className="flex items-center space-x-2">
+                      <Clock className="h-4 w-4 text-blue-500" />
+                      <span>Scheduled</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="published">
+                    <div className="flex items-center space-x-2">
+                      <CheckCircle className="h-4 w-4 text-green-500" />
+                      <span>Published</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-gray-500 mt-1">
+                {formData.status === 'draft' && 'Save as draft to edit later'}
+                {formData.status === 'scheduled' && 'Schedule for future publication'}
+                {formData.status === 'published' && 'Publish immediately'}
+              </p>
+            </div>
+
+            {/* Scheduling Date/Time Picker */}
+            {formData.status === 'scheduled' && (
+              <div>
+                <Label htmlFor="scheduledFor" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="h-4 w-4" />
+                    <span>Scheduled Date & Time</span>
+                  </div>
+                </Label>
+                <Input
+                  type="datetime-local"
+                  id="scheduledFor"
+                  name="scheduledFor"
+                  value={formData.scheduledFor}
+                  onChange={handleInputChange}
+                  min={new Date(Date.now() + 60000).toISOString().slice(0, 16)} // At least 1 minute from now
+                  className="w-full"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Your post will be automatically published at this time
+                </p>
+              </div>
+            )}
+
+            {/* Public/Private Toggle */}
+            <div className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <div className="flex items-center space-x-3">
+                {formData.isPublic ? (
+                  <Eye className="h-5 w-5 text-green-500" />
+                ) : (
+                  <EyeOff className="h-5 w-5 text-gray-500" />
+                )}
+                <div>
+                  <Label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {formData.isPublic ? 'Public Post' : 'Private Post'}
+                  </Label>
+                  <p className="text-sm text-gray-500">
+                    {formData.isPublic 
+                      ? 'Visible to all visitors' 
+                      : 'Only visible to administrators'
+                    }
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData(prev => ({ ...prev, isPublic: !prev.isPublic }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  formData.isPublic ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    formData.isPublic ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Status Summary */}
+            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <div className="flex items-center space-x-2 text-sm">
+                {formData.status === 'draft' && (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+                    <span className="text-gray-600 dark:text-gray-400">
+                      This post will be saved as a draft
+                    </span>
+                  </>
+                )}
+                {formData.status === 'scheduled' && (
+                  <>
+                    <Clock className="h-4 w-4 text-blue-500" />
+                    <span className="text-blue-600 dark:text-blue-400">
+                      {formData.scheduledFor 
+                        ? `Will be published on ${new Date(formData.scheduledFor).toLocaleString()}`
+                        : 'Select a date and time to schedule publication'
+                      }
+                    </span>
+                  </>
+                )}
+                {formData.status === 'published' && (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-green-600 dark:text-green-400">
+                      This post will be published immediately
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         <div>
           <Label htmlFor="content" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

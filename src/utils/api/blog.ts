@@ -5,6 +5,9 @@ export const blogApi = {
   // Get blog posts (public)
   getPosts: () => api.get('/blog'),
   
+  // Get all posts for admin (includes drafts, scheduled, private)
+  getAdminPosts: () => api.get('/blog?admin=true'),
+  
   // Get specific post (public)
   getPost: (slug: string) => api.get(`/blog/${slug}`),
   
