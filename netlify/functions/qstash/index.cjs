@@ -1,10 +1,14 @@
 // netlify/functions/qstash/index.cjs
 const { Redis } = require('@upstash/redis');
 const { Client, Receiver } = require('@upstash/qstash');
-const jwt = require('jsonwebtoken');
-const { parse } = require('cookie');
 const { getWebhookUrl, getCorsHeaders } = require('../platform-utils.cjs');
 const { generateTaskId, generateNotificationId } = require('../secure-id-utils.cjs');
+const { 
+  authenticateUser, 
+  getCurrentAccountContext, 
+  checkPermission,
+  handleAuthError 
+} = require('../account-utils.cjs');
 
 // Initialize Redis and QStash
 const redis = new Redis({
@@ -20,9 +24,6 @@ const qstashReceiver = new Receiver({
   currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY,
   nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY,
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
 
 // CORS headers
 const corsHeaders = {
@@ -41,48 +42,6 @@ async function isQStashEnabled() {
   } catch (error) {
     console.error('Error checking QStash feature flag:', error);
     return false;
-  }
-}
-
-// Authentication middleware
-async function authenticateUser(event) {
-  // Extract token based on auth mode
-  let token;
-  const authHeader = event.headers.authorization || event.headers.Authorization;
-
-  if (AUTH_MODE === 'bearer') {
-    // Bearer token mode - only check Authorization header
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    }
-  } else {
-    // Cookie mode - check both header and cookies for backward compatibility
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      // Check for token in cookies
-      const cookies = event.headers.cookie;
-      if (cookies) {
-        const parsedCookies = parse(cookies);
-        token = parsedCookies.auth_token;
-      }
-    }
-  }
-
-  if (!token) {
-    throw new Error('No token provided');
-  }
-
-  if (token.trim() === '' || token === 'null' || token === 'undefined') {
-    throw new Error('Invalid token format');
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded.sub || decoded.userId; // Use 'sub' field which contains the user ID
-  } catch (error) {
-    console.error('JWT verification failed:', error.message);
-    throw new Error('Invalid token');
   }
 }
 
@@ -144,19 +103,7 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     console.error('QStash function error:', error);
-
-    const isAuthError = error.message === 'No token provided' ||
-      error.message === 'Invalid token format' ||
-      error.message === 'Invalid token' ||
-      error.name === 'JsonWebTokenError' ||
-      error.name === 'TokenExpiredError' ||
-      error.name === 'NotBeforeError';
-
-    return {
-      statusCode: isAuthError ? 401 : 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: error.message || 'Internal server error' }),
-    };
+    return handleAuthError(error, corsHeaders);
   }
 };
 
@@ -176,32 +123,101 @@ async function handleScheduleTask(event, userId) {
     const taskId = generateTaskId();
     const webhookUrl = getWebhookUrl('qstash/webhook');
 
-    // Prepare QStash message options
-    const messageOptions = {
-      url: webhookUrl,
-      body: JSON.stringify({
-        taskId,
-        type,
-        payload,
-        userId,
-        createdAt: new Date().toISOString()
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Task-ID': taskId,
-        'X-User-ID': userId
+    // Check if we're in development mode (localhost)
+    const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
+    
+    let qstashResponse;
+    
+    if (isDevelopment) {
+      // In development, simulate QStash behavior by processing tasks immediately
+      console.log(`Development mode: Processing task ${taskId} immediately instead of queueing`);
+      
+      // Simulate QStash response
+      qstashResponse = {
+        messageId: `dev-${taskId}`,
+        url: webhookUrl,
+        method: 'POST'
+      };
+
+      // Process the task immediately in development
+      setTimeout(async () => {
+        try {
+          console.log(`Processing development task: ${taskId}, type: ${type}`);
+          
+          let result;
+          switch (type) {
+            case 'welcome_email':
+              result = await processWelcomeEmail(payload);
+              break;
+            case 'scheduled_blog_post':
+              result = await processScheduledBlogPost(payload);
+              break;
+            case 'cleanup_task':
+              result = await processCleanupTask(payload);
+              break;
+            case 'notification':
+              result = await processNotification(payload);
+              break;
+            default:
+              throw new Error(`Unknown task type: ${type}`);
+          }
+
+          // Update task as completed
+          const taskKey = `task:${taskId}`;
+          const existingTask = await redis.get(taskKey);
+          if (existingTask) {
+            const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
+            task.status = 'completed';
+            task.result = result;
+            task.updatedAt = new Date().toISOString();
+            await redis.set(taskKey, JSON.stringify(task));
+          }
+
+          console.log(`Development task ${taskId} completed successfully`);
+        } catch (error) {
+          console.error(`Development task ${taskId} failed:`, error);
+          
+          // Update task as failed
+          const taskKey = `task:${taskId}`;
+          const existingTask = await redis.get(taskKey);
+          if (existingTask) {
+            const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
+            task.status = 'failed';
+            task.error = error.message;
+            task.updatedAt = new Date().toISOString();
+            await redis.set(taskKey, JSON.stringify(task));
+          }
+        }
+      }, delay ? delay * 1000 : 100); // Process after delay or 100ms
+      
+    } else {
+      // Production mode: Use QStash normally
+      const messageOptions = {
+        url: webhookUrl,
+        body: JSON.stringify({
+          taskId,
+          type,
+          payload,
+          userId,
+          createdAt: new Date().toISOString()
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Task-ID': taskId,
+          'X-User-ID': userId
+        }
+      };
+
+      // Add scheduling if specified
+      if (scheduledFor) {
+        messageOptions.notBefore = new Date(scheduledFor).getTime() / 1000;
+      } else if (delay) {
+        messageOptions.delay = delay;
       }
-    };
 
-    // Add scheduling if specified
-    if (scheduledFor) {
-      messageOptions.notBefore = new Date(scheduledFor).getTime() / 1000;
-    } else if (delay) {
-      messageOptions.delay = delay;
+      // Publish to QStash
+      qstashResponse = await qstashClient.publishJSON(messageOptions);
     }
-
-    // Publish to QStash
-    const qstashResponse = await qstashClient.publishJSON(messageOptions);
 
     // Store task metadata in Redis
     const task = {
@@ -534,24 +550,74 @@ async function scheduleWelcomeEmail(userId, { email, name }) {
   const taskId = generateTaskId();
   const webhookUrl = getWebhookUrl('qstash/webhook');
 
-  const messageOptions = {
-    url: webhookUrl,
-    body: JSON.stringify({
-      taskId,
-      type: 'welcome_email',
-      payload: { email, name },
-      userId,
-      createdAt: new Date().toISOString()
-    }),
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Task-ID': taskId,
-      'X-User-ID': userId
-    },
-    delay: 5 // 5 second delay to make registration feel instant
-  };
+  // Check if we're in development mode (localhost)
+  const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
+  
+  let qstashResponse;
+  
+  if (isDevelopment) {
+    // In development, simulate QStash behavior
+    console.log(`Development mode: Simulating welcome email for ${email}`);
+    
+    qstashResponse = {
+      messageId: `dev-welcome-${taskId}`,
+      url: webhookUrl,
+      method: 'POST'
+    };
 
-  const qstashResponse = await qstashClient.publishJSON(messageOptions);
+    // Simulate email processing after delay
+    setTimeout(async () => {
+      try {
+        const result = await processWelcomeEmail({ email, name });
+        console.log(`Development welcome email completed:`, result);
+        
+        // Update task as completed
+        const taskKey = `task:${taskId}`;
+        const existingTask = await redis.get(taskKey);
+        if (existingTask) {
+          const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
+          task.status = 'completed';
+          task.result = result;
+          task.updatedAt = new Date().toISOString();
+          await redis.set(taskKey, JSON.stringify(task));
+        }
+      } catch (error) {
+        console.error(`Development welcome email failed:`, error);
+        
+        // Update task as failed
+        const taskKey = `task:${taskId}`;
+        const existingTask = await redis.get(taskKey);
+        if (existingTask) {
+          const task = typeof existingTask === 'string' ? JSON.parse(existingTask) : existingTask;
+          task.status = 'failed';
+          task.error = error.message;
+          task.updatedAt = new Date().toISOString();
+          await redis.set(taskKey, JSON.stringify(task));
+        }
+      }
+    }, 2000);
+    
+  } else {
+    // Production mode: Use QStash normally
+    const messageOptions = {
+      url: webhookUrl,
+      body: JSON.stringify({
+        taskId,
+        type: 'welcome_email',
+        payload: { email, name },
+        userId,
+        createdAt: new Date().toISOString()
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Task-ID': taskId,
+        'X-User-ID': userId
+      },
+      delay: 5 // 5 second delay to make registration feel instant
+    };
+
+    qstashResponse = await qstashClient.publishJSON(messageOptions);
+  }
 
   const task = {
     id: taskId,

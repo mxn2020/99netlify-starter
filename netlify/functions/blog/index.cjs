@@ -1,106 +1,17 @@
 const { Redis } = require('@upstash/redis');
-const jwt = require('jsonwebtoken');
-const { parse } = require('cookie');
 const { getCorsHeaders } = require('../platform-utils.cjs');
 const { generateBlogPostId } = require('../secure-id-utils.cjs');
+const { 
+  authenticateUser, 
+  getCurrentAccountContext, 
+  checkPermission,
+  handleAuthError 
+} = require('../account-utils.cjs');
 
-const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-
-let redis;
-try {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    throw new Error('Redis configuration missing');
-  }
-  redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
-} catch (error) {
-  console.error('Redis initialization failed for blog:', error);
-}
-
-// Authentication middleware
-async function authenticateUser(event) {
-  // Extract token based on auth mode
-  let token;
-  const authHeader = event.headers.authorization || event.headers.Authorization;
-
-  if (AUTH_MODE === 'bearer') {
-    // Bearer token mode - only check Authorization header
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    }
-  } else {
-    // Cookie mode - check both header and cookies for backward compatibility
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      // Check for token in cookies
-      const cookies = event.headers.cookie;
-      if (cookies) {
-        const parsedCookies = parse(cookies);
-        token = parsedCookies.auth_token;
-      }
-    }
-  }
-
-  if (!token) {
-    throw new Error('No token provided');
-  }
-
-  // Check if token is valid and not just empty or malformed
-  if (!token || token.trim() === '' || token === 'null' || token === 'undefined') {
-    throw new Error('Invalid token format');
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded.sub; // Use 'sub' field which contains the user ID
-  } catch (error) {
-    console.error('JWT verification failed:', error.message);
-    throw new Error('Invalid token');
-  }
-}
-
-// Get user's current account context
-async function getCurrentAccountContext(userId, accountId = null) {
-  try {
-    // If specific accountId is provided, validate user's access to it
-    if (accountId) {
-      const membershipData = await redis.get(`account:${accountId}:member:${userId}`);
-      if (!membershipData) {
-        throw new Error('Access denied to account');
-      }
-      const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
-      return {
-        accountId,
-        userId,
-        role: membership.role
-      };
-    }
-
-    // Get user's personal account as default
-    const userAccounts = await redis.lrange(`user:${userId}:accounts`, 0, -1);
-    if (userAccounts.length === 0) {
-      throw new Error('No accounts found for user');
-    }
-
-    // Use the first account (personal account) as default
-    const defaultAccountId = userAccounts[0];
-    const membershipData = await redis.get(`account:${defaultAccountId}:member:${userId}`);
-    const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
-    
-    return {
-      accountId: defaultAccountId,
-      userId,
-      role: membership.role
-    };
-  } catch (error) {
-    console.error('Error getting account context:', error);
-    throw error;
-  }
-}
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 // Helper to create a slug
 const slugify = (text) => text.toString().toLowerCase()

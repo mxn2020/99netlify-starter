@@ -530,9 +530,16 @@ netlify deploy --prod
 - Verify QSTASH_CURRENT_SIGNING_KEY and QSTASH_NEXT_SIGNING_KEY are set
 - Check that webhook URL is publicly accessible
 - Ensure feature flag 'upstash_qstash' is enabled
+- **Development Mode**: QStash automatically switches to simulation mode for localhost URLs to avoid webhook delivery issues
+
+**QStash in Development:**
+- Tasks are processed immediately instead of being queued
+- No external webhooks are sent (simulated locally)
+- All QStash features work normally, just faster for testing
+- Production deployment automatically uses real QStash webhooks
 
 **Feature flags not updating:**
-- Check admin permissions (user.role === 'admin')
+- Check super admin permissions (user.role === 'super-admin')
 - Verify Redis connection is stable
 - Clear browser cache and retry
 

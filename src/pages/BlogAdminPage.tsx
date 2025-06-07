@@ -44,13 +44,13 @@ const BlogAdminPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'super-admin') {
       loadPosts();
     }
   }, [loadPosts, user?.role]);
 
-  // Check if user is admin after hooks
-  if (user?.role !== 'admin') {
+  // Check if user is super-admin after hooks
+  if (user?.role !== 'super-admin') {
     return (
       <div className="max-w-6xl mx-auto p-6">
         <div className="text-center">

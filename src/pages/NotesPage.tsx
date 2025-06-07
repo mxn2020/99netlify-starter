@@ -15,7 +15,7 @@ const NotesPage: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [sortBy, setSortBy] = useState('updatedAt');
@@ -30,7 +30,7 @@ const NotesPage: React.FC = () => {
       setLoading(true);
       const params: any = {};
       if (searchTerm) params.search = searchTerm;
-      if (selectedCategory) params.category = selectedCategory;
+      if (selectedCategory && selectedCategory !== 'all') params.category = selectedCategory;
       if (selectedTags.length > 0) params.tags = selectedTags.join(',');
       params.sortBy = sortBy;
       params.sortOrder = sortOrder;
@@ -131,7 +131,7 @@ const NotesPage: React.FC = () => {
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Categories</SelectItem>
+              <SelectItem value="all">All Categories</SelectItem>
               {categories.map(category => (
                 <SelectItem key={category} value={category}>
                   {category}
@@ -219,7 +219,7 @@ const NotesPage: React.FC = () => {
             No notes found
           </h3>
           <p className="text-gray-600 dark:text-gray-400 mb-6">
-            {searchTerm || selectedCategory || selectedTags.length > 0
+            {searchTerm || (selectedCategory && selectedCategory !== 'all') || selectedTags.length > 0
               ? "Try adjusting your filters or search terms"
               : "Get started by creating your first note"}
           </p>

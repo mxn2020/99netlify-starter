@@ -22,7 +22,6 @@ const AccountsPage: React.FC = () => {
     fetchAccountMembers,
     fetchAccountInvites,
     inviteMember,
-    updateMemberRole,
     removeMember,
     cancelInvite,
   } = useAccount();

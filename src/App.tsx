@@ -29,6 +29,7 @@ import NotFoundPage from './pages/NotFoundPage';
 
 // Admin Pages
 import FeatureFlagsPage from './pages/admin/FeatureFlagsPage';
+import QStashPage from './pages/admin/QStashPage';
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -61,7 +62,7 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'super-admin') {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -207,6 +208,14 @@ function AppContent() {
             element={
               <AdminRoute>
                 <FeatureFlagsPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="admin/qstash"
+            element={
+              <AdminRoute>
+                <QStashPage />
               </AdminRoute>
             }
           />

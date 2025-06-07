@@ -61,8 +61,8 @@ const DashboardPage: React.FC = () => {
     }
   ];
 
-  // Add admin actions if user is admin
-  if (user?.role === 'admin') {
+  // Add admin actions if user is super-admin
+  if (user?.role === 'super-admin') {
     quickActions.push({
       title: 'Feature Flags',
       description: 'Manage feature toggles',
@@ -200,7 +200,7 @@ const DashboardPage: React.FC = () => {
             <span className="text-muted-foreground">Read blog post "Getting Started"</span>
             <span className="text-xs text-muted-foreground">3 days ago</span>
           </div>
-          {user?.role === 'admin' && (
+          {user?.role === 'super-admin' && (
             <div className="flex items-center space-x-3 text-sm">
               <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
               <span className="text-muted-foreground">Feature flags system initialized</span>

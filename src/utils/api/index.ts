@@ -14,6 +14,9 @@ export { qstashApi } from './qstash';
 export { guestbookApi } from './guestbook';
 export { counterApi } from './counter';
 
+// Note: Account management helpers have been consolidated into AccountContext.tsx
+// For account-related utilities, import from: ../contexts/AccountContext
+
 // For convenience, you can also import individual APIs directly:
 // import { authApi } from '../utils/api/auth';
 // import { blogApi } from '../utils/api/blog';

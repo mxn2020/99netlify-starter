@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { notesApi } from '../utils/api';
+import { useAccount } from '../contexts/AccountContext';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import { Note } from '../types';
 import { Edit, Trash2, Calendar, Tag, ArrowLeft, Share, Eye, EyeOff } from 'lucide-react';
@@ -9,6 +10,7 @@ import { Button } from '../components/ui/button';
 const NoteDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { currentAccount } = useAccount();
   const [note, setNote] = useState<Note | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +21,7 @@ const NoteDetailPage: React.FC = () => {
     if (id) {
       fetchNote();
     }
-  }, [id]);
+  }, [id, currentAccount]);
 
   const fetchNote = async () => {
     if (!id) {
@@ -31,7 +33,12 @@ const NoteDetailPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await notesApi.getNote(id);
+      let response;
+      if (currentAccount) {
+        response = await notesApi.getNoteInAccount(currentAccount.id, id);
+      } else {
+        response = await notesApi.getNote(id);
+      }
       setNote(response.data.note);
     } catch (error: any) {
       console.error('Error fetching note:', error);
@@ -52,7 +59,11 @@ const NoteDetailPage: React.FC = () => {
     
     try {
       setDeleting(true);
-      await notesApi.deleteNote(note.id);
+      if (currentAccount) {
+        await notesApi.deleteNoteInAccount(currentAccount.id, note.id);
+      } else {
+        await notesApi.deleteNote(note.id);
+      }
       navigate('/notes');
     } catch (error) {
       console.error('Error deleting note:', error);
@@ -67,9 +78,16 @@ const NoteDetailPage: React.FC = () => {
     if (!note) return;
 
     try {
-      const response = await notesApi.updateNote(note.id, {
-        isPublic: !note.isPublic
-      });
+      let response;
+      if (currentAccount) {
+        response = await notesApi.updateNoteInAccount(currentAccount.id, note.id, {
+          isPublic: !note.isPublic
+        });
+      } else {
+        response = await notesApi.updateNote(note.id, {
+          isPublic: !note.isPublic
+        });
+      }
       setNote(response.data.note);
     } catch (error) {
       console.error('Error updating note visibility:', error);

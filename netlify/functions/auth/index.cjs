@@ -244,7 +244,7 @@ async function handleRegister(event) {
       name: sanitizedUsername,
       email: sanitizedEmail,
       password: hashedPassword,
-      role: 'user',
+      role: 'user', // Default role is 'user', can be 'admin' or 'super-admin'
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lastLogin: null,
@@ -288,6 +288,17 @@ async function handleRegister(event) {
     await redis.set(`account:${accountId}:member:${userId}`, JSON.stringify(ownerMembership));
     await redis.sadd(`account:${accountId}:members`, userId);
     await redis.sadd(`user:${userId}:accounts`, accountId);
+
+    // Schedule welcome email via QStash (if enabled)
+    try {
+      await scheduleWelcomeEmail(userId, {
+        email: sanitizedEmail,
+        name: sanitizedUsername
+      });
+    } catch (qstashError) {
+      // Don't fail registration if welcome email fails
+      console.warn('Welcome email scheduling failed:', qstashError.message);
+    }
 
     // Generate secure JWT token
     const token = generateSecureToken(user);
@@ -890,5 +901,98 @@ async function blacklistUserTokens(userId) {
   } catch (error) {
     console.error('Error blacklisting user tokens:', error);
     // Don't throw - password change should still succeed
+  }
+}
+
+// Helper function to schedule welcome email via QStash
+async function scheduleWelcomeEmail(userId, { email, name }) {
+  try {
+    // Check if QStash feature is enabled
+    const flagsData = await redis.get('feature_flags');
+    if (!flagsData) return;
+
+    const flags = typeof flagsData === 'string' ? JSON.parse(flagsData) : flagsData;
+    const qstashEnabled = flags.upstash_qstash?.enabled || false;
+    
+    if (!qstashEnabled) {
+      console.log('QStash is disabled, skipping welcome email');
+      return;
+    }
+
+    // Import QStash client dynamically to avoid loading if not needed
+    const { Client } = require('@upstash/qstash');
+    const { getWebhookUrl } = require('../platform-utils.cjs');
+    const { generateTaskId } = require('../secure-id-utils.cjs');
+
+    const qstashClient = new Client({
+      token: process.env.QSTASH_TOKEN,
+    });
+
+    const taskId = generateTaskId();
+    const webhookUrl = getWebhookUrl('qstash/webhook');
+
+    // Check if we're in development mode (localhost)
+    const isDevelopment = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('::1');
+    
+    let qstashResponse;
+    
+    if (isDevelopment) {
+      // In development, simulate QStash behavior
+      console.log(`Development mode: Simulating welcome email for ${email}`);
+      
+      qstashResponse = {
+        messageId: `dev-welcome-${taskId}`,
+        url: webhookUrl,
+        method: 'POST'
+      };
+
+      // Simulate email processing after delay
+      setTimeout(() => {
+        console.log(`✅ Welcome email simulated for ${name} <${email}>`);
+      }, 2000);
+      
+    } else {
+      // Production mode: Use QStash normally
+      const messageOptions = {
+        url: webhookUrl,
+        body: JSON.stringify({
+          taskId,
+          type: 'welcome_email',
+          payload: { email, name },
+          userId,
+          createdAt: new Date().toISOString()
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Task-ID': taskId,
+          'X-User-ID': userId
+        },
+        delay: 5 // 5 second delay to make registration feel instant
+      };
+
+      qstashResponse = await qstashClient.publishJSON(messageOptions);
+    }
+
+    const task = {
+      id: taskId,
+      type: 'welcome_email',
+      payload: { email, name },
+      scheduledFor: null,
+      status: 'pending',
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId,
+      qstashMessageId: qstashResponse.messageId
+    };
+
+    await redis.set(`task:${taskId}`, JSON.stringify(task));
+    await redis.lpush(`user:${userId}:tasks`, taskId);
+
+    console.log(`Welcome email scheduled for ${email} (Task: ${taskId})`);
+    return task;
+  } catch (error) {
+    console.error('Failed to schedule welcome email:', error);
+    throw error;
   }
 }

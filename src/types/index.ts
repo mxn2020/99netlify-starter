@@ -4,7 +4,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'super-admin';
   createdAt: string;
   preferences?: {
     menuLayout: 'sidebar' | 'header';
@@ -78,6 +78,11 @@ export interface Note {
   updatedAt: string;
   tags?: string[];
   isArchived?: boolean;
+  // User tracking fields
+  createdBy?: string;
+  updatedBy?: string;
+  archivedBy?: string;
+  deletedBy?: string;
 }
 
 export interface NoteType {

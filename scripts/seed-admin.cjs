@@ -48,29 +48,30 @@ async function clearAllBlogPosts() {
 
 async function createAdminUser() {
   try {
-    console.log('👤 Creating admin user...');
+    console.log('👤 Creating super-admin user...');
 
     const adminEmail = 'admin@example.com';
     const adminPassword = 'admin123';
-    const adminName = 'Admin User';
+    const adminName = 'Super Admin User';
 
     // Check if admin already exists
     const existingAdminId = await redis.get(`user:email:${adminEmail}`);
     if (existingAdminId) {
       console.log('⚠️  Admin user already exists');
 
-      // Update existing user to ensure they have admin role
+      // Update existing user to ensure they have super-admin role
       const existingUserData = await redis.get(`user:${existingAdminId}`);
       if (existingUserData) {
         const userData = typeof existingUserData === 'string' ? JSON.parse(existingUserData) : existingUserData;
-        userData.role = 'admin';
+        userData.role = 'super-admin';
+        userData.name = adminName; // Update name to reflect super-admin status
         await redis.set(`user:${existingAdminId}`, JSON.stringify(userData));
-        console.log('✅ Updated existing user to admin role');
+        console.log('✅ Updated existing user to super-admin role');
       }
       return;
     }
 
-    // Create admin user
+    // Create super-admin user
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     const adminId = generateUserId();
 
@@ -80,21 +81,21 @@ async function createAdminUser() {
       name: adminName,
       email: adminEmail,
       password: hashedPassword,
-      role: 'admin',
+      role: 'super-admin',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    // Store admin user
+    // Store super-admin user
     await redis.set(`user:${adminId}`, JSON.stringify(adminUser));
     await redis.set(`user:email:${adminEmail}`, adminId);
 
-    console.log('✅ Admin user created successfully');
+    console.log('✅ Super-admin user created successfully');
     console.log(`   📧 Email: ${adminEmail}`);
     console.log(`   🔑 Password: ${adminPassword}`);
-    console.log(`   👑 Role: admin\n`);
+    console.log(`   👑 Role: super-admin\n`);
   } catch (error) {
-    console.error('❌ Error creating admin user:', error);
+    console.error('❌ Error creating super-admin user:', error);
     throw error;
   }
 }

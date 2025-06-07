@@ -34,7 +34,7 @@ const NoteEditorPage: React.FC = () => {
     if (isEditing) {
       fetchNote();
     }
-  }, [id, isEditing]);
+  }, [id, isEditing, currentAccount]);
 
   const fetchNote = async () => {
     if (!id) return;
@@ -42,7 +42,12 @@ const NoteEditorPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await notesApi.getNote(id);
+      let response;
+      if (currentAccount) {
+        response = await notesApi.getNoteInAccount(currentAccount.id, id);
+      } else {
+        response = await notesApi.getNote(id);
+      }
       setNote(response.data.note);
     } catch (error: any) {
       console.error('Error fetching note:', error);
@@ -77,7 +82,11 @@ const NoteEditorPage: React.FC = () => {
 
       let response;
       if (isEditing && id) {
-        response = await notesApi.updateNote(id, noteData);
+        if (currentAccount) {
+          response = await notesApi.updateNoteInAccount(currentAccount.id, id, noteData);
+        } else {
+          response = await notesApi.updateNote(id, noteData);
+        }
       } else {
         if (currentAccount) {
           response = await notesApi.createNoteInAccount(currentAccount.id, noteData);

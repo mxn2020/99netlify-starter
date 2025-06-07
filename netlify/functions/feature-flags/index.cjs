@@ -1,16 +1,17 @@
 // netlify/functions/feature-flags/index.cjs
 const { Redis } = require('@upstash/redis');
-const jwt = require('jsonwebtoken');
-const { parse } = require('cookie');
+const { 
+  authenticateUser, 
+  getCurrentAccountContext, 
+  checkPermission,
+  handleAuthError 
+} = require('../account-utils.cjs');
 
 // Initialize Redis
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
 
 // CORS headers
 const corsHeaders = {
@@ -166,57 +167,6 @@ const DEFAULT_FEATURE_FLAGS = [
   }
 ];
 
-// Authentication middleware
-async function authenticateUser(event) {
-  // Extract token based on auth mode
-  let token;
-  const authHeader = event.headers.authorization || event.headers.Authorization;
-
-  if (AUTH_MODE === 'bearer') {
-    // Bearer token mode - only check Authorization header
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    }
-  } else {
-    // Cookie mode - check both header and cookies for backward compatibility
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      // Check for token in cookies
-      const cookies = event.headers.cookie;
-      if (cookies) {
-        const parsedCookies = parse(cookies);
-        token = parsedCookies.auth_token;
-      }
-    }
-  }
-
-  if (!token) {
-    throw new Error('No token provided');
-  }
-
-  if (token.trim() === '' || token === 'null' || token === 'undefined') {
-    throw new Error('Invalid token format');
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-
-    // Get user data to check role - use 'sub' field which contains the user ID
-    const userId = decoded.sub || decoded.userId;
-    const userData = await redis.get(`user:${userId}`);
-    if (!userData) {
-      throw new Error('User not found');
-    }
-
-    const user = typeof userData === 'string' ? JSON.parse(userData) : userData;
-    return { userId, role: user.role || 'user', user };
-  } catch (error) {
-    console.error('JWT verification failed:', error.message);
-    throw new Error('Invalid token');
-  }
-}
-
 // Initialize feature flags if they don't exist
 async function initializeFeatureFlags() {
   const existingFlags = await redis.get('feature_flags');
@@ -254,12 +204,14 @@ exports.handler = async (event) => {
     }
 
     // Admin-only endpoints
-    const authUser = await authenticateUser(event);
-    if (authUser.role !== 'admin') {
+    const userId = await authenticateUser(event);
+    const accountContext = await getCurrentAccountContext(userId);
+    
+    if (!checkPermission(accountContext.role, 'super-admin')) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Admin access required' }),
+        body: JSON.stringify({ error: 'Super admin access required' }),
       };
     }
 
@@ -283,19 +235,7 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     console.error('Feature flags function error:', error);
-
-    const isAuthError = error.message === 'No token provided' ||
-      error.message === 'Invalid token format' ||
-      error.message === 'Invalid token' ||
-      error.name === 'JsonWebTokenError' ||
-      error.name === 'TokenExpiredError' ||
-      error.name === 'NotBeforeError';
-
-    return {
-      statusCode: isAuthError ? 401 : 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: error.message || 'Internal server error' }),
-    };
+    return handleAuthError(error, corsHeaders);
   }
 };
 
@@ -305,8 +245,10 @@ async function handleGetFeatureFlags(event) {
 
     // Try to get user role if authenticated
     try {
-      const authUser = await authenticateUser(event);
-      userRole = authUser.role;
+      const userId = await authenticateUser(event);
+      const accountContext = await getCurrentAccountContext(userId);
+      // For feature flags, we check if user has admin permissions in their account
+      userRole = checkPermission(accountContext.role, 'super-admin') ? 'super-admin' : 'user';
     } catch (error) {
       // Not authenticated, use default 'user' role
     }
@@ -320,8 +262,8 @@ async function handleGetFeatureFlags(event) {
 
     // Filter flags based on user role
     const filteredFlags = Object.values(flags).filter(flag => {
-      // Admin users see all flags
-      if (userRole === 'admin') return true;
+      // Super-admin users see all flags
+      if (userRole === 'super-admin') return true;
       // Regular users only see non-admin flags
       return !flag.adminOnly;
     });

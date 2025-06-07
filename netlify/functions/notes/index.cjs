@@ -1,105 +1,18 @@
-const { Redis } = require('@upstash/redis');
-const jwt = require('jsonwebtoken');
-const { parse } = require('cookie');
 const { generateNoteId } = require('../secure-id-utils.cjs');
+const { getCorsHeaders } = require('../platform-utils.cjs');
+const { 
+  authenticateUser, 
+  getCurrentAccountContext,
+  validateContentAccess,
+  hasContentAccess,
+  getAuthErrorResponse,
+  getPermissionErrorResponse,
+  handleAuthError,
+  redis
+} = require('../account-utils.cjs');
 
-// Initialize Redis
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
-});
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
-const AUTH_MODE = process.env.AUTH_MODE || 'cookie'; // 'cookie' or 'bearer'
-
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-};
-
-// Authentication middleware
-async function authenticateUser(event) {
-  // Extract token based on auth mode
-  let token;
-  const authHeader = event.headers.authorization || event.headers.Authorization;
-
-  if (AUTH_MODE === 'bearer') {
-    // Bearer token mode - only check Authorization header
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    }
-  } else {
-    // Cookie mode - check both header and cookies for backward compatibility
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else {
-      // Check for token in cookies
-      const cookies = event.headers.cookie;
-      if (cookies) {
-        const parsedCookies = parse(cookies);
-        token = parsedCookies.auth_token;
-      }
-    }
-  }
-
-  if (!token) {
-    throw new Error('No token provided');
-  }
-
-  // Check if token is valid and not just empty or malformed
-  if (!token || token.trim() === '' || token === 'null' || token === 'undefined') {
-    throw new Error('Invalid token format');
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded.sub; // Use 'sub' field which contains the user ID
-  } catch (error) {
-    console.error('JWT verification failed:', error.message);
-    throw new Error('Invalid token');
-  }
-}
-
-// Get user's current account context
-async function getCurrentAccountContext(userId, accountId = null) {
-  try {
-    // If specific accountId is provided, validate user's access to it
-    if (accountId) {
-      const membershipData = await redis.get(`account:${accountId}:member:${userId}`);
-      if (!membershipData) {
-        throw new Error('Access denied to account');
-      }
-      const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
-      return {
-        accountId,
-        userId,
-        role: membership.role
-      };
-    }
-
-    // Get user's personal account as default
-    const userAccounts = await redis.lrange(`user:${userId}:accounts`, 0, -1);
-    if (userAccounts.length === 0) {
-      throw new Error('No accounts found for user');
-    }
-
-    // Use the first account (personal account) as default
-    const defaultAccountId = userAccounts[0];
-    const membershipData = await redis.get(`account:${defaultAccountId}:member:${userId}`);
-    const membership = typeof membershipData === 'string' ? JSON.parse(membershipData) : membershipData;
-    
-    return {
-      accountId: defaultAccountId,
-      userId,
-      role: membership.role
-    };
-  } catch (error) {
-    console.error('Error getting account context:', error);
-    throw error;
-  }
-}
+// Use centralized CORS headers
+const corsHeaders = getCorsHeaders();
 
 exports.handler = async (event) => {
   // Handle CORS preflight
@@ -147,26 +60,11 @@ exports.handler = async (event) => {
     return {
       statusCode: 404,
       headers: corsHeaders,
-      body: JSON.stringify({ error: 'Endpoint not found' }),
+      body: JSON.stringify({ success: false, error: 'Endpoint not found' }),
     };
   } catch (error) {
     console.error('Notes function error:', error);
-
-    // Handle different types of authentication errors
-    const isAuthError = error.message === 'No token provided' ||
-      error.message === 'Invalid token format' ||
-      error.message === 'Invalid token' ||
-      error.message === 'Access denied to account' ||
-      error.message === 'No accounts found for user' ||
-      error.name === 'JsonWebTokenError' ||
-      error.name === 'TokenExpiredError' ||
-      error.name === 'NotBeforeError';
-
-    return {
-      statusCode: isAuthError ? 401 : 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: error.message || 'Internal server error' }),
-    };
+    return handleAuthError(error, corsHeaders);
   }
 };
 
@@ -192,7 +90,7 @@ async function handleGetNotes(accountContext, queryParams) {
       return {
         statusCode: 200,
         headers: corsHeaders,
-        body: JSON.stringify({ notes: [], total: 0, page: parseInt(page), totalPages: 0 }),
+        body: JSON.stringify({ success: true, notes: [], total: 0, page: parseInt(page), totalPages: 0 }),
       };
     }
 
@@ -262,6 +160,7 @@ async function handleGetNotes(accountContext, queryParams) {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({
+        success: true,
         notes: paginatedNotes,
         total,
         page: pageNum,
@@ -284,7 +183,7 @@ async function handleGetNote(noteId, accountContext) {
       return {
         statusCode: 404,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Note not found' }),
+        body: JSON.stringify({ success: false, error: 'Note not found' }),
       };
     }
 
@@ -296,7 +195,7 @@ async function handleGetNote(noteId, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Access denied' }),
+        body: JSON.stringify({ success: false, error: 'Access denied' }),
       };
     }
 
@@ -304,6 +203,7 @@ async function handleGetNote(noteId, accountContext) {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({ 
+        success: true,
         note,
         accountContext: { accountId, role: accountContext.role }
       }),
@@ -324,7 +224,7 @@ async function handleCreateNote(event, accountContext) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Title and content are required' }),
+        body: JSON.stringify({ success: false, error: 'Title and content are required' }),
       };
     }
 
@@ -333,7 +233,7 @@ async function handleCreateNote(event, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Insufficient permissions to create content' }),
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to create content' }),
       };
     }
 
@@ -379,6 +279,7 @@ async function handleCreateNote(event, accountContext) {
       statusCode: 201,
       headers: corsHeaders,
       body: JSON.stringify({ 
+        success: true,
         note,
         accountContext: { accountId, role }
       }),
@@ -398,7 +299,7 @@ async function handleUpdateNote(event, noteId, accountContext) {
       return {
         statusCode: 404,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Note not found' }),
+        body: JSON.stringify({ success: false, error: 'Note not found' }),
       };
     }
 
@@ -410,7 +311,7 @@ async function handleUpdateNote(event, noteId, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Access denied' }),
+        body: JSON.stringify({ success: false, error: 'Access denied' }),
       };
     }
 
@@ -419,7 +320,7 @@ async function handleUpdateNote(event, noteId, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Insufficient permissions to edit content' }),
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to edit content' }),
       };
     }
 
@@ -470,6 +371,7 @@ async function handleUpdateNote(event, noteId, accountContext) {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({ 
+        success: true,
         note: updatedNote,
         accountContext: { accountId, role }
       }),
@@ -489,7 +391,7 @@ async function handleDeleteNote(noteId, accountContext) {
       return {
         statusCode: 404,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Note not found' }),
+        body: JSON.stringify({ success: false, error: 'Note not found' }),
       };
     }
 
@@ -501,7 +403,7 @@ async function handleDeleteNote(noteId, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Access denied' }),
+        body: JSON.stringify({ success: false, error: 'Access denied' }),
       };
     }
 
@@ -510,7 +412,7 @@ async function handleDeleteNote(noteId, accountContext) {
       return {
         statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Insufficient permissions to delete content' }),
+        body: JSON.stringify({ success: false, error: 'Insufficient permissions to delete content' }),
       };
     }
 
@@ -539,6 +441,7 @@ async function handleDeleteNote(noteId, accountContext) {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({ 
+        success: true,
         message: 'Note deleted successfully',
         accountContext: { accountId, role }
       }),

@@ -61,13 +61,13 @@ const FeatureFlagsPage: React.FC = () => {
     fetchFlags();
   }, []);
 
-  // Check if user is admin
-  if (user?.role !== 'admin') {
+  // Check if user is super-admin
+  if (user?.role !== 'super-admin') {
     return (
       <div className="max-w-6xl mx-auto p-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h1>
-          <p className="text-gray-600 mb-4">You need admin privileges to access feature flags.</p>
+          <p className="text-gray-600 mb-4">You need super admin privileges to access feature flags.</p>
         </div>
       </div>
     );

@@ -12,6 +12,10 @@ export const notesApi = {
   // Get specific note
   getNote: (noteId: string) => api.get(`/notes/${noteId}`),
   
+  // Get specific note in account context
+  getNoteInAccount: (accountId: string, noteId: string) => 
+    apiWithAccount(accountId).get(`/notes/${noteId}`),
+  
   // Create note
   createNote: (data: any) => api.post('/notes', data),
   
@@ -22,6 +26,14 @@ export const notesApi = {
   // Update note
   updateNote: (noteId: string, data: any) => api.put(`/notes/${noteId}`, data),
   
+  // Update note in account context
+  updateNoteInAccount: (accountId: string, noteId: string, data: any) => 
+    apiWithAccount(accountId).put(`/notes/${noteId}`, data),
+  
   // Delete note
   deleteNote: (noteId: string) => api.delete(`/notes/${noteId}`),
+  
+  // Delete note in account context
+  deleteNoteInAccount: (accountId: string, noteId: string) => 
+    apiWithAccount(accountId).delete(`/notes/${noteId}`),
 };

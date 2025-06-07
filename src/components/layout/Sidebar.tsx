@@ -40,7 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
   const navigation: NavigationItem[] = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Notes', href: '/notes', icon: FileText },
-    { name: 'Blog Admin', href: '/admin/blog', icon: BookOpen, adminOnly: true },
+    { name: 'Blog Admin', href: '/admin/blog', icon: BookOpen, adminOnly: true, badge: 'Super Admin' },
     { name: 'Public Blog', href: '/blog', icon: BookOpen },
     { name: 'Examples', href: '/examples', icon: FlaskConical },
     { name: 'Accounts', href: '/accounts', icon: Users },
@@ -49,14 +49,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
     { name: 'Test Suite', href: '/test', icon: TestTube },
   ];
 
-  // Add admin-only routes with feature flag integration
-  const adminNavigation: NavigationItem[] = [
+  // Add super-admin-only routes with feature flag integration
+  const superAdminNavigation: NavigationItem[] = [
     { 
       name: 'Feature Flags', 
       href: '/admin/feature-flags', 
       icon: Flag, 
       adminOnly: true, 
-      badge: 'Admin' 
+      badge: 'Super Admin' 
     },
     ...(qstashEnabled ? [{
       name: 'Task Queue',
@@ -67,16 +67,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
     }] : [])
   ];
 
-  const isAdmin = user?.role === 'admin';
+  const isSuperAdmin = user?.role === 'super-admin';
 
   // Filter navigation items based on user role
   const filteredNavigation = navigation.filter(item => 
-    !item.adminOnly || (item.adminOnly && isAdmin)
+    !item.adminOnly || (item.adminOnly && isSuperAdmin)
   );
 
   const allNavigation = [
     ...filteredNavigation,
-    ...(isAdmin ? adminNavigation : [])
+    ...(isSuperAdmin ? superAdminNavigation : [])
   ];
 
   return (
@@ -138,13 +138,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
           })}
         </nav>
 
-        {/* Admin Section Separator */}
-        {isAdmin && (
+        {/* Super Admin Section Separator */}
+        {isSuperAdmin && (
           <div className="px-4 py-2 border-t border-border mt-4">
             <div className="flex items-center gap-2 px-3 py-2">
               <Flag className="h-4 w-4 text-muted-foreground" />
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Administration
+                Super Administration
               </span>
             </div>
             {qstashEnabled && (
