@@ -179,20 +179,22 @@ async function handleRegister(event) {
       };
     }
 
-    const { username, email, password } = body;
+    const { username, email, password, firstName, lastName } = body;
 
     // Validate required fields
-    if (!username || !email || !password) {
+    if (!username || !email || !password || !firstName || !lastName) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'Username, email, and password are required' }),
+        body: JSON.stringify({ error: 'Username, email, password, first name, and last name are required' }),
       };
     }
 
     // Sanitize and validate inputs
     const sanitizedUsername = sanitizeInput(username);
     const sanitizedEmail = sanitizeInput(email);
+    const sanitizedFirstName = sanitizeInput(firstName);
+    const sanitizedLastName = sanitizeInput(lastName);
 
     const usernameValidation = validateUsername(sanitizedUsername);
     if (!usernameValidation.valid) {
@@ -241,7 +243,9 @@ async function handleRegister(event) {
     const user = {
       id: userId,
       username: sanitizedUsername,
-      name: sanitizedUsername,
+      firstName: sanitizedFirstName,
+      lastName: sanitizedLastName,
+      name: `${sanitizedFirstName} ${sanitizedLastName}`, // Full name for backward compatibility
       email: sanitizedEmail,
       password: hashedPassword,
       role: 'user', // Default role is 'user', can be 'admin' or 'super-admin'
@@ -262,7 +266,7 @@ async function handleRegister(event) {
 
     const personalAccount = {
       id: accountId,
-      name: `${sanitizedUsername}'s Personal Account`,
+      name: `${sanitizedFirstName} ${sanitizedLastName}'s Personal Account`,
       type: 'personal',
       description: 'Personal account',
       ownerId: userId,
@@ -293,7 +297,7 @@ async function handleRegister(event) {
     try {
       await scheduleWelcomeEmail(userId, {
         email: sanitizedEmail,
-        name: sanitizedUsername
+        name: `${sanitizedFirstName} ${sanitizedLastName}`
       });
     } catch (qstashError) {
       // Don't fail registration if welcome email fails
@@ -647,6 +651,44 @@ async function handleUpdateProfile(event) {
     // Validate and sanitize inputs
     let updatedFields = {};
 
+    if (body.username !== undefined) {
+      const sanitizedUsername = sanitizeInput(body.username);
+      const usernameValidation = validateUsername(sanitizedUsername);
+      if (!usernameValidation.valid) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: usernameValidation.message }),
+        };
+      }
+      updatedFields.username = sanitizedUsername;
+    }
+
+    if (body.firstName !== undefined) {
+      const sanitizedFirstName = sanitizeInput(body.firstName);
+      if (sanitizedFirstName.length < 1 || sanitizedFirstName.length > 50) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'First name must be between 1 and 50 characters' }),
+        };
+      }
+      updatedFields.firstName = sanitizedFirstName;
+    }
+
+    if (body.lastName !== undefined) {
+      const sanitizedLastName = sanitizeInput(body.lastName);
+      if (sanitizedLastName.length < 1 || sanitizedLastName.length > 50) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({ error: 'Last name must be between 1 and 50 characters' }),
+        };
+      }
+      updatedFields.lastName = sanitizedLastName;
+    }
+
+    // Keep backward compatibility with 'name' field
     if (body.name !== undefined) {
       const sanitizedName = sanitizeInput(body.name);
       if (sanitizedName.length < 1 || sanitizedName.length > 100) {
@@ -690,6 +732,13 @@ async function handleUpdateProfile(event) {
       if (typeof body.preferences === 'object' && body.preferences !== null) {
         updatedFields.preferences = body.preferences;
       }
+    }
+
+    // If firstName or lastName is being updated, update the full name
+    if (updatedFields.firstName || updatedFields.lastName) {
+      const firstName = updatedFields.firstName || user.firstName || '';
+      const lastName = updatedFields.lastName || user.lastName || '';
+      updatedFields.name = `${firstName} ${lastName}`.trim();
     }
 
     // Update user fields

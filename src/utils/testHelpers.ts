@@ -31,38 +31,43 @@ export const testProfileUpdate = async (
     };
   }
 
-  const testName = `${currentUser.name} (Test Update ${new Date().toISOString().slice(0, 10)})`;
+  const currentFullName = `${currentUser.firstName} ${currentUser.lastName}`;
+  const testFirstName = `${currentUser.firstName}_Test`;
+  const testLastName = `${currentUser.lastName}_${new Date().toISOString().slice(0, 10)}`;
+  const expectedFullName = `${testFirstName} ${testLastName}`;
 
-  console.warn(`Testing profile update with name: ${testName}`);
+  console.warn(`Testing profile update with names: ${testFirstName} ${testLastName}`);
 
   try {
     const updatedUser = await updateUserFn({
-      name: testName
+      firstName: testFirstName,
+      lastName: testLastName
     });
 
     if (!updatedUser) {
       return {
         success: false,
         message: 'Update function returned undefined',
-        originalValue: currentUser.name
+        originalValue: currentFullName
       };
     }
 
-    const success = updatedUser.name === testName;
+    const actualFullName = `${updatedUser.firstName} ${updatedUser.lastName}`;
+    const success = actualFullName === expectedFullName;
 
     return {
       success,
       message: success
-        ? `Profile update successful! Name changed to "${testName}"`
-        : `Profile update failed. Expected "${testName}" but got "${updatedUser.name || 'undefined'}"`,
-      originalValue: currentUser.name,
-      newValue: updatedUser.name
+        ? `Profile update successful! Name changed to "${expectedFullName}"`
+        : `Profile update failed. Expected "${expectedFullName}" but got "${actualFullName || 'undefined'}"`,
+      originalValue: currentFullName,
+      newValue: actualFullName
     };
   } catch (error: unknown) {
     return {
       success: false,
       message: `Error during profile update test: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      originalValue: currentUser.name,
+      originalValue: currentFullName,
       error
     };
   }

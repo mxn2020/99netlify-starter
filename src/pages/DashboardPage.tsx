@@ -24,10 +24,10 @@ const DashboardPage: React.FC = () => {
   const qstashEnabled = useFeatureFlag('upstash_qstash');
 
   const welcomeMessages = [
-    `Welcome back, ${user?.name || 'User'}!`,
-    `Hello ${user?.name || 'User'}!`,
-    `Good to see you, ${user?.name || 'User'}!`,
-    `Ready to create, ${user?.name || 'User'}?`
+    `Welcome back, ${user?.firstName || 'User'}!`,
+    `Hello ${user?.firstName || 'User'}!`,
+    `Good to see you, ${user?.firstName || 'User'}!`,
+    `Ready to create, ${user?.firstName || 'User'}?`
   ];
 
   const quickActions = [

@@ -131,13 +131,14 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, showMenu = false, isFixe
                 <div className="relative">
                   <Button variant="ghost" size="icon" onClick={toggleUserMenu} aria-label="User Menu">
                     <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground uppercase text-xs">
-                      {user?.name?.charAt(0) || 'U'}
+                      {user?.firstName?.charAt(0) || user?.username?.charAt(0) || 'U'}
                     </div>
                   </Button>
                   {userMenuOpen && (
                     <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-popover ring-1 ring-border focus:outline-none">
                       <div className="px-4 py-2 text-sm text-popover-foreground border-b border-border">
-                        <p className="font-medium">{user?.name}</p>
+                        <p className="font-medium">{user?.firstName} {user?.lastName}</p>
+                        <p className="text-xs text-muted-foreground">@{user?.username}</p>
                         <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
                         {user?.role === 'super-admin' && (
                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 mt-1">

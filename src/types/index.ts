@@ -3,7 +3,10 @@
 export interface User {
   id: string;
   email: string;
-  name: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  name: string; // Keep for backward compatibility (computed from firstName + lastName)
   role: 'user' | 'admin' | 'super-admin';
   createdAt: string;
   preferences?: {
@@ -128,7 +131,7 @@ export interface AuthContextType {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (email: string, password: string, username: string, firstName: string, lastName: string) => Promise<void>;
   updateUser: (userData: Partial<User>) => Promise<User | undefined>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; requireReauth: boolean; message: string }>;
   logout: () => void;

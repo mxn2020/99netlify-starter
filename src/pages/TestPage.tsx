@@ -159,7 +159,7 @@ const TestPage: React.FC = () => {
             </CardHeader>
             <CardContent>
               <p className="mb-4">
-                <strong>Current username:</strong> {user?.name || 'Not logged in'}
+                <strong>Current user:</strong> {user ? `${user.firstName} ${user.lastName} (@${user.username})` : 'Not logged in'}
               </p>
               <p className="text-sm text-muted-foreground mb-6">
                 This test will add a timestamp to your current name and attempt to save it to the database.

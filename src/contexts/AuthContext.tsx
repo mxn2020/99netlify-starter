@@ -93,9 +93,15 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const register = async (email: string, password: string, name: string) => {
+  const register = async (email: string, password: string, username: string, firstName: string, lastName: string) => {
     try {
-      const response = await authApi.register({ email, password, username: name });
+      const response = await authApi.register({ 
+        email, 
+        password, 
+        username,
+        firstName,
+        lastName
+      });
 
       if (response.data.user && response.data.success) {
         const { user: userData, token: authToken } = response.data;
@@ -112,7 +118,7 @@ const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         // Schedule welcome email via QStash (non-blocking)
-        scheduleWelcomeEmail(email, name);
+        scheduleWelcomeEmail(email, `${firstName} ${lastName}`);
       } else {
         throw new Error(response.data.error || 'Registration failed');
       }

@@ -9,7 +9,9 @@ const ProfilePage: React.FC = () => {
   const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
-    name: user?.name || '',
+    username: user?.username || '',
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
     email: user?.email || '',
   });
   
@@ -17,11 +19,13 @@ const ProfilePage: React.FC = () => {
   useEffect(() => {
     if (user) {
       setFormData({
-        name: user.name || '',
+        username: user.username || '',
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
         email: user.email || '',
       });
     }
-  }, [user?.name, user?.email]);
+  }, [user?.username, user?.firstName, user?.lastName, user?.email]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -43,7 +47,9 @@ const ProfilePage: React.FC = () => {
     try {
       // Call the updateUser function which now makes an API call
       await updateUser({
-        name: formData.name,
+        username: formData.username,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
         email: formData.email
       });
       
@@ -91,8 +97,9 @@ const ProfilePage: React.FC = () => {
               <UserIcon size={24} />
             </div>
             <div>
-              <h2 className="text-xl font-semibold">{user.name}</h2>
-              <p className="text-gray-600">{user.email}</p>
+              <h2 className="text-xl font-semibold">{user.firstName} {user.lastName}</h2>
+              <p className="text-gray-600">@{user.username}</p>
+              <p className="text-gray-600 text-sm">{user.email}</p>
             </div>
           </div>
           <Button
@@ -108,8 +115,15 @@ const ProfilePage: React.FC = () => {
             <div className="flex items-start">
               <UserIcon className="w-5 h-5 text-gray-500 mt-0.5 mr-3" />
               <div>
+                <p className="text-sm text-gray-500">Username</p>
+                <p className="text-gray-900 dark:text-gray-100 font-medium">@{user.username}</p>
+              </div>
+            </div>
+            <div className="flex items-start">
+              <UserIcon className="w-5 h-5 text-gray-500 mt-0.5 mr-3" />
+              <div>
                 <p className="text-sm text-gray-500">Name</p>
-                <p className="text-gray-900 dark:text-gray-100 font-medium">{user.name}</p>
+                <p className="text-gray-900 dark:text-gray-100 font-medium">{user.firstName} {user.lastName}</p>
               </div>
             </div>
             <div className="flex items-start">
@@ -136,18 +150,48 @@ const ProfilePage: React.FC = () => {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Name
+              <Label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Username
               </Label>
               <Input
-                id="name"
-                name="name"
+                id="username"
+                name="username"
                 type="text"
                 required
-                value={formData.name}
+                value={formData.username}
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="firstName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  First Name
+                </Label>
+                <Input
+                  id="firstName"
+                  name="firstName"
+                  type="text"
+                  required
+                  value={formData.firstName}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <Label htmlFor="lastName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Last Name
+                </Label>
+                <Input
+                  id="lastName"
+                  name="lastName"
+                  type="text"
+                  required
+                  value={formData.lastName}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
             <div>
               <Label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
