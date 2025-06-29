@@ -97,22 +97,34 @@ A production-ready React application template built for rapid development during
 
 ## 🚀 Quick Start
 
-### Method 1: Bolt.new (Recommended)
+### Method 1a: Bolt.new
 1. Visit [bolt.new](https://bolt.new)
 2. Fork this repository
-3. Create new project from your fork
+3. Create a new project from your fork
+4. Follow setup steps below
+
+### Method 1b: v0.dev
+1. Visit [v0.dev](https://v0.dev)
+2. Fork this repository
+3. Create a new project from your fork
+4. Follow setup steps below
+
+### Method 1c: lovable.dev
+1. Visit [lovable.dev](https://lovable.dev)
+2. Fork this repository
+3. Create a new project from your fork
 4. Follow setup steps below
 
 ### Method 2: Traditional Setup
 ```bash
-git clone https://github.com/mxn2020/boltdotnew-template-netlify-redis
-cd boltdotnew-template-netlify-redis
+git clone https://github.com/mxn2020/99netlify-starter
+cd 99netlify-starter
 npm install
 ```
 
-### Method 3: Deploy to Vercel
+### Method 3: Deploy to Netlify/Vercel
 1. Fork this repository
-2. Connect to Vercel via GitHub
+2. Connect to Netlify/Vercel via GitHub
 3. Configure environment variables (see below)
 4. Deploy automatically
 
