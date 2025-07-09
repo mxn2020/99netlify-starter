@@ -129,7 +129,53 @@ async function getCurrentAccountContext(userId, accountId = null) {
     // Get user's personal account as default
     const userAccounts = await redis.smembers(`user:${userId}:accounts`);
     if (userAccounts.length === 0) {
-      throw new Error('No accounts found for user');
+      // Auto-create personal account if none exists
+      console.log(`Creating personal account for user ${userId}`);
+      
+      const userData = await redis.get(`user:${userId}`);
+      if (!userData) {
+        throw new Error('User not found');
+      }
+      
+      const user = typeof userData === 'string' ? JSON.parse(userData) : userData;
+      const { generateAccountId } = require('./secure-id-utils.cjs');
+      const accountId = generateAccountId();
+      const now = new Date().toISOString();
+
+      const personalAccount = {
+        id: accountId,
+        name: `${user.firstName} ${user.lastName}'s Personal Account`,
+        type: 'personal',
+        description: 'Personal account',
+        ownerId: userId,
+        createdAt: now,
+        updatedAt: now,
+        settings: {
+          allowInvites: false,
+          defaultMemberRole: 'viewer',
+        },
+      };
+
+      // Store account and membership
+      await redis.set(`account:${accountId}`, JSON.stringify(personalAccount));
+      
+      const ownerMembership = {
+        userId,
+        accountId,
+        role: 'owner',
+        joinedAt: now,
+        invitedBy: userId,
+      };
+
+      await redis.set(`account:${accountId}:member:${userId}`, JSON.stringify(ownerMembership));
+      await redis.sadd(`account:${accountId}:members`, userId);
+      await redis.sadd(`user:${userId}:accounts`, accountId);
+      
+      return {
+        accountId,
+        userId,
+        role: 'owner'
+      };
     }
 
     // Use the first account (personal account) as default

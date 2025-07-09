@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlusCircle, Settings, User, LogOut, Menu, Sun, Moon, BookOpen, Home as HomeIcon, Info, FileText, TestTube } from 'lucide-react';
+import { PlusCircle, Settings, User, LogOut, Menu, Sun, Moon, BookOpen, Home as HomeIcon, Info, FileText, TestTube, Github } from 'lucide-react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from 'next-themes';
@@ -40,7 +40,7 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, showMenu = false, isFixe
             <Link to="/" className="flex items-center gap-2 ml-2 md:ml-0">
               <img src="/logo.svg" alt="App Logo" className="h-7 w-7" />
               <span className="font-semibold text-lg text-foreground">
-                AppTemplate
+                99Netlify-Starter
               </span>
             </Link>
           </div>
@@ -110,6 +110,15 @@ const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, showMenu = false, isFixe
           )}
 
           <div className="flex items-center space-x-2">
+            <a
+              href="https://github.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background hover:bg-accent hover:text-accent-foreground h-10 w-10"
+              aria-label="Visit GitHub"
+            >
+              <Github className="h-5 w-5" />
+            </a>
             <Button
               variant="ghost"
               size="icon"

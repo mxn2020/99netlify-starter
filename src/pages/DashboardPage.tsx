@@ -76,7 +76,6 @@ const DashboardPage: React.FC = () => {
   const shippingSoonFeatures = flags.filter(f => f.status === 'shipping_soon').length;
 
   const stats = [
-    { label: 'Total Notes', value: '12', icon: FileText },
     { label: 'Active Features', value: activeFeatures.toString(), icon: CheckCircle, color: 'text-green-600' },
     { label: 'Coming Soon', value: shippingSoonFeatures.toString(), icon: Clock, color: 'text-blue-600' }
   ];
@@ -115,7 +114,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* Stats with Feature Integration */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (

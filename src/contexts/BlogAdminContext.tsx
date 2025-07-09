@@ -1,5 +1,6 @@
 import React, { createContext, useContext, ReactNode, useCallback } from 'react';
 import { useAccount } from './AccountContext';
+import { useAuth } from '../hooks/useAuth';
 import { blogApi } from '../utils/api';
 import { BlogPost } from '../types';
 
@@ -27,9 +28,11 @@ interface BlogAdminProviderProps {
 
 export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }) => {
   const { currentAccount } = useAccount();
+  const { user } = useAuth();
 
   const createPost = useCallback(async (postData: Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>): Promise<BlogPost> => {
-    if (!currentAccount) {
+    // Allow admin users to bypass account requirement (backend will auto-create account)
+    if (!currentAccount && (!user || (user.role !== 'admin' && user.role !== 'super-admin'))) {
       throw new Error('No account selected');
     }
     
@@ -42,10 +45,11 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to create post');
     }
-  }, [currentAccount]);
+  }, [currentAccount, user]);
 
   const updatePost = useCallback(async (slug: string, postData: Partial<Omit<BlogPost, 'id' | 'slug' | 'authorId' | 'publishedDate'>>): Promise<BlogPost> => {
-    if (!currentAccount) {
+    // Allow admin users to bypass account requirement (backend will auto-create account)
+    if (!currentAccount && (!user || (user.role !== 'admin' && user.role !== 'super-admin'))) {
       throw new Error('No account selected');
     }
     
@@ -58,10 +62,11 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to update post');
     }
-  }, [currentAccount]);
+  }, [currentAccount, user]);
 
   const deletePost = useCallback(async (slug: string): Promise<void> => {
-    if (!currentAccount) {
+    // Allow admin users to bypass account requirement (backend will auto-create account)
+    if (!currentAccount && (!user || (user.role !== 'admin' && user.role !== 'super-admin'))) {
       throw new Error('No account selected');
     }
     
@@ -73,7 +78,7 @@ export const BlogAdminProvider: React.FC<BlogAdminProviderProps> = ({ children }
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : 'Failed to delete post');
     }
-  }, [currentAccount]);
+  }, [currentAccount, user]);
 
   const fetchPosts = useCallback(async (): Promise<BlogPost[]> => {
     try {

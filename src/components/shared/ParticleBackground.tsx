@@ -159,7 +159,7 @@ const ParticleBackground: React.FC = () => {
     return () => {
       cancelAnimationFrame(animationRef.current);
     };
-  }, [dimensions, mousePosition, resolvedTheme]);
+  }, [dimensions, resolvedTheme]);
 
   return (
     <canvas 

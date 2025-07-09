@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useBlogAdmin } from '../contexts/BlogAdminContext';
 import { useAccount } from '../contexts/AccountContext';
+import { useAuth } from '../hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -15,6 +16,7 @@ const BlogEditorPage: React.FC = () => {
   const navigate = useNavigate();
   const { fetchPost, createPost, updatePost } = useBlogAdmin();
   const { currentAccount } = useAccount();
+  const { user } = useAuth();
   const isEditing = Boolean(slug);
 
   const [formData, setFormData] = useState({
@@ -76,7 +78,8 @@ const BlogEditorPage: React.FC = () => {
       }
     }
 
-    if (!currentAccount) {
+    // Allow admin users to bypass account requirement (backend will auto-create account)
+    if (!currentAccount && (!user || (user.role !== 'admin' && user.role !== 'super-admin'))) {
       setError('Please select an account to create or edit blog posts');
       return;
     }

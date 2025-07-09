@@ -24,14 +24,12 @@ const MainLayout: React.FC = () => {
           <Sidebar isOpen={sidebarOpen} toggleSidebar={toggleSidebar} />
         )}
         <div className="flex flex-col flex-1 overflow-hidden">
-          {isAuthenticated && (
-            <Navbar 
-              toggleSidebar={toggleSidebar} 
-              showMenu={menuLayout === 'header'}
-              isFixed={menuLayout === 'header'}
-            />
-          )}
-          <main className={`flex-grow p-4 md:p-6 overflow-y-auto ${menuLayout === 'header' ? 'mt-16' : ''}`}>
+          <Navbar 
+            toggleSidebar={toggleSidebar} 
+            showMenu={!isAuthenticated || menuLayout === 'header'}
+            isFixed={!isAuthenticated || menuLayout === 'header'}
+          />
+          <main className={`flex-grow p-4 md:p-6 overflow-y-auto ${!isAuthenticated || menuLayout === 'header' ? 'mt-16' : ''}`}>
             <div className="container mx-auto">
               <Outlet />
             </div>

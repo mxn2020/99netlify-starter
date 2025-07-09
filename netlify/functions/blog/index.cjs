@@ -63,7 +63,7 @@ async function handleGetPosts(pathParts, queryParams, event = null) {
           const user = typeof userData === 'string' ? JSON.parse(userData) : userData;
           
           // Check if user has admin permissions
-          if (user.role !== 'super-admin') {
+          if (user.role !== 'super-admin' && user.role !== 'admin') {
             return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Admin access required' }) };
           }
           
@@ -110,15 +110,34 @@ async function handleGetPosts(pathParts, queryParams, event = null) {
 
       // Filter to only show posts that should be visible to the public
       const now = new Date();
+      console.log('All posts before filtering:', posts.map(p => ({ 
+        id: p?.id, 
+        title: p?.title, 
+        status: p?.status, 
+        isPublic: p?.isPublic, 
+        isPublicType: typeof p?.isPublic 
+      })));
+      
       const publicPosts = posts.filter(p => {
-        if (!p || !p.id) return false;
+        if (!p || !p.id) {
+          console.log('Filtered out: no id');
+          return false;
+        }
         
         // Only show published posts
-        if (p.status !== 'published') return false;
+        if (p.status !== 'published') {
+          console.log(`Filtered out ${p.title}: status is ${p.status}, not published`);
+          return false;
+        }
         
-        // Must be marked as public
-        if (p.isPublic !== 'true') return false;
+        // Must be marked as public - handle both string and boolean values
+        const isPublic = p.isPublic === 'true' || p.isPublic === true;
+        if (!isPublic) {
+          console.log(`Filtered out ${p.title}: isPublic is ${p.isPublic} (type: ${typeof p.isPublic})`);
+          return false;
+        }
         
+        console.log(`Including post: ${p.title}`);
         return true;
       });
 
@@ -132,7 +151,8 @@ async function handleGetPosts(pathParts, queryParams, event = null) {
       }
 
       // Check if post is accessible for public viewing
-      if (post.status !== 'published' || post.isPublic !== 'true') {
+      const isPublic = post.isPublic === 'true' || post.isPublic === true;
+      if (post.status !== 'published' || !isPublic) {
         return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Access denied' }) };
       }
 

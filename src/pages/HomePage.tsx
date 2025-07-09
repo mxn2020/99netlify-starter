@@ -62,7 +62,7 @@ const HomePage: React.FC = () => {
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
               <img src="/logo.svg" alt="App Logo" className="h-8 w-8" />
-              <span className="font-semibold text-xl text-foreground">AppTemplate</span>
+              <span className="font-semibold text-xl text-foreground">99Netlify-Starter</span>
             </Link>
             
             <nav className="hidden md:flex items-center gap-6">
@@ -724,7 +724,7 @@ const HomePage: React.FC = () => {
             <div>
               <Link to="/" className="flex items-center gap-2 mb-4">
                 <img src="/logo.svg" alt="App Logo" className="h-8 w-8" />
-                <span className="font-semibold text-lg">AppTemplate</span>
+                <span className="font-semibold text-lg">99Netlify-Starter</span>
               </Link>
               <p className="text-muted-foreground">A modern React application starter with everything you need.</p>
             </div>
@@ -756,7 +756,7 @@ const HomePage: React.FC = () => {
           
           <div className="border-t border-border mt-8 pt-8 flex flex-col md:flex-row items-center justify-between">
             <div className="flex flex-col md:flex-row items-center gap-4 md:gap-0">
-              <p className="text-muted-foreground text-sm">© {new Date().getFullYear()} AppTemplate. All rights reserved.</p>
+              <p className="text-muted-foreground text-sm">© {new Date().getFullYear()} 99Netlify-Starter. All rights reserved.</p>
               
               <Button
                 onClick={handleThemeToggle}
