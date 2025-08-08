@@ -1,0 +1,91 @@
+{
+    "simple": {
+        "content": "d"
+    },
+    "advanced": {
+        "blocks": [
+            {
+                "id": "11f0dfda-8e94-4fc9-b975-13f2122cfef9",
+                "order": 0,
+                "title": "Examples",
+                "assets": [],
+                "modules": [
+                    {
+                        "id": "1f2aaa2f-6340-4a0d-8a28-8b1f46329bc1",
+                        "order": 0,
+                        "title": "Prompt Example 1",
+                        "content": "Prompt Example "
+                    },
+                    {
+                        "id": "dea5b9b5-e44d-42ab-8121-ed7867ecab10",
+                        "order": 1,
+                        "title": "Prompt Example 2",
+                        "content": "Prompt Example "
+                    }
+                ],
+                "description": ""
+            },
+            {
+                "id": "b96e4b67-430a-4cad-8586-ed4bce729210",
+                "order": 1,
+                "title": "Coding Pattern",
+                "assets": [],
+                "modules": [
+                    {
+                        "id": "968efb33-872d-4bf2-b5c6-039c3321fab1",
+                        "order": 0,
+                        "title": "Technology Stack",
+                        "content": "- **Frontend**: React 18+ with TypeScript\n- **Build Tool**: Vite\n- **Styling**: Tailwind CSS 4.x\n- **UI Components**: shadcn/ui (Radix UI based)\n- **State Management**: Context API + React hooks\n- **Routing**: React Router v7\n- **HTTP Client**: Axios with interceptors\n- **Backend**: Netlify Functions (Node.js)\n- **Database**: Upstash Redis\n- **Authentication**: JWT + bcrypt\n- **Deployment**: Netlify with serverless functions"
+                    },
+                    {
+                        "id": "45f4bda5-fbf8-48b8-8e84-2b00e6b4e379",
+                        "order": 1,
+                        "title": "Project Structure",
+                        "content": "```\nsrc/\n├── components/\n│   ├── ui/                    # shadcn/ui components\n│   ├── layout/               # Layout components\n│   ├── auth/                 # Authentication components\n│   ├── blog/                 # Blog-specific components\n│   ├── shared/               # Reusable components\n│   └── examples/             # Example components\n├── contexts/                 # React contexts\n├── hooks/                    # Custom hooks\n├── pages/                    # Page components\n├── types/                    # TypeScript interfaces\n├── utils/                    # Utility functions\n│   └── api/                  # API client modules\n└── lib/                      # Library configurations\n```"
+                    },
+                    {
+                        "id": "40eab9ae-29e4-4aab-b871-f842fdf1d61a",
+                        "order": 2,
+                        "title": "Landing Page",
+                        "content": "A modern, responsive landing page showcasing application features with hero section, feature highlights, tech stack display, and call-to-action sections.\n\n### Implementation Plan\n1. Create hero section with TypeWriter animation\n2. Implement feature cards with icons and descriptions\n3. Add tech stack showcase with logo components\n4. Include blog post previews\n5. Add sign-up/CTA sections\n6. Implement responsive navigation"
+                    },
+                    {
+                        "id": "05751b96-ddf5-449c-be4f-87ab7047e141",
+                        "order": 3,
+                        "title": "Authentication System",
+                        "content": "Comprehensive authentication system with JWT tokens, secure password handling, role-based access control, and both cookie and bearer token support.\n\n### Implementation Plan\n1. Create AuthContext for state management\n2. Implement login/register forms with validation\n3. Add JWT token handling (localStorage + httpOnly cookies)\n4. Create protected route components\n5. Implement password strength validation\n6. Add role-based access control"
+                    },
+                    {
+                        "id": "9a254c37-9168-41a3-ade8-06ed9abe5998",
+                        "order": 4,
+                        "title": "Blog System",
+                        "content": "Complete blog management system with public reading, admin controls, scheduled publishing, and markdown support.\n\n### Implementation Plan\n1. Create blog data types and interfaces\n2. Implement blog listing and post display components\n3. Add blog admin interface with CRUD operations\n4. Create blog editor with markdown support\n5. Implement scheduled publishing\n6. Add tag system and search functionality"
+                    },
+                    {
+                        "id": "3db1c10b-7903-4c84-b38d-4ec1755e5827",
+                        "order": 5,
+                        "title": "Dashboard",
+                        "content": "User dashboard with quick actions, statistics, feature flags integration, and activity feeds.\n\n### Implementation Plan\n1. Create dashboard layout with hero section\n2. Add quick action cards for common tasks\n3. Implement stats display with feature flags\n4. Add recent activity feed\n5. Create role-based content display\n6. Implement responsive design"
+                    },
+                    {
+                        "id": "96c41f6d-a8e3-44f2-a2a4-dbde0acad4f3",
+                        "order": 6,
+                        "title": "Theme System",
+                        "content": "Comprehensive dark/light theme system with next-themes integration, system preference detection, and smooth transitions.\n\n### Implementation Plan\n1. Set up next-themes provider\n2. Create theme context and hooks\n3. Implement theme toggle components\n4. Add theme persistence\n5. Configure Tailwind for dark mode\n6. Add theme-aware components"
+                    }
+                ],
+                "description": "Core Architecture Patterns for modern React web applications following established patterns and best practices. Each module includes detailed implementation guidance and follows the technology stack requirements."
+            }
+        ]
+    },
+    "modulized": {
+        "modules": [
+            {
+                "id": "b7ca1de4-afdf-4b90-991a-f8d93e9785b1",
+                "order": 0,
+                "title": "",
+                "content": ""
+            }
+        ]
+    }
+}
