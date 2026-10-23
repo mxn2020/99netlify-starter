@@ -599,7 +599,7 @@ LOG_LEVEL=debug
 
 ## 📝 License
 
-MIT License - feel free to use this template for your projects!
+Apache License 2.0 - feel free to use this template for your projects!
 
 ## 🆘 Support
 
@@ -625,3 +625,7 @@ The following features are pre-configured and ready to implement:
 **Happy Hacking! 🎉**
 
 *Built with ❤️ for the developer community. This template powers hackathon winners and production apps alike.*
+
+---
+
+> **License note:** As of 2026-10-23 this project is licensed under the Apache License 2.0 (previously MIT). Versions released before this change remain available under MIT to those who received them.
